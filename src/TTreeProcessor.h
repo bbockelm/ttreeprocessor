@@ -214,6 +214,8 @@ class TTreeProcessorMapper {
   public:
     virtual T map (InputArgs...) const = 0;
 
+    virtual void finalize() {}
+
     typedef T output_type;
 };
 
@@ -358,8 +360,9 @@ class TTreeProcessor {
      * At runtime, we will check that the specified branches actually match the
      * templated class parameters.
      */
-    TTreeProcessor(const branch_spec_tuple & branches, ProcessingStages&&... state) : m_branches(branches), m_stage_state(std::forward_as_tuple(state...))
-    {}
+    TTreeProcessor(const branch_spec_tuple & branches, ProcessingStages... state) : m_branches(branches), m_stage_state(std::make_tuple(state...))
+    {
+    }
 
     TTreeProcessor(const branch_spec_tuple &branches, std::tuple<ProcessingStages&&...> state) : m_branches(branches), m_stage_state(state)
     {}
@@ -399,9 +402,12 @@ class TTreeProcessor {
       auto initial_data = std::make_tuple(1, 2, 3);
 
       process_stages_helper(initial_data);
+
+      //TODO: call finalize in the end...
     }
 
   private:
+
     static const unsigned int stage_count = sizeof...(ProcessingStages);
 
     template <unsigned int N, unsigned int M, typename Processor>
@@ -420,12 +426,15 @@ class TTreeProcessor {
 
     template <unsigned int N, typename Processor>
     struct ProcessorHelper<N, N, Processor> {
+      ProcessorHelper(Processor *p_) : m_p(p_) {}
+      Processor *m_p;
+
       void operator()(typename ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {}
     };
 
     void
     process_stages_helper(BranchTypes args) {
-      ProcessorHelper<0, stage_count, typename std::decay<decltype(*this)>::type>(this)(args);
+      ProcessorHelper<0, stage_count-1, typename std::decay<decltype(*this)>::type>(this)(args);
     };
 
     bool m_valid{true};
