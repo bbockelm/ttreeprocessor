@@ -100,7 +100,7 @@ struct result_of_unpacked_tuple {
 template<unsigned int I, typename F, typename InputTuple, typename... Args>
 struct result_of_unpacked_tuple <I, I, F, InputTuple, Args...> {
   /* NOTE: this likely needs to be cleaned up.  We really want to call F.map(Args..) instead. */
-  typedef typename std::result_of<F(Args...)>::type type;
+  typedef typename std::result_of<decltype(&F::map)(F, Args...)>::type type;
 };
 
 template<unsigned int I, unsigned int J, typename InputArg, typename... ProcessingStages>

@@ -74,8 +74,6 @@ class TTreeProcessorMapperLambda final : public TTreeProcessorMapper<typename st
       return m_fn(args...);
     }
 
-    typename std::result_of<T(InputArgs...)>::type operator() (InputArgs... args) const { return fn(args...); }
-
   private:
     T m_fn;
 };
@@ -142,6 +140,7 @@ class TTreeProcessor {
       if (!m_valid) {throw InvalidProcessor();}
       auto initial_data = std::make_tuple(1, 2, 3);
 
+      for (int i=0; i<10; i++)
       process_stages_helper(initial_data);
 
       //TODO: call finalize in the end...
@@ -156,8 +155,9 @@ class TTreeProcessor {
       ProcessorHelper(Processor *p_) : m_p(p_) {}
       Processor *m_p;
 
-      typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::output_type operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {
-        return ProcessorHelper<N+1, M, Processor>(this)(internal::std_future::apply(std::get<N>(m_p->m_stage_state), arg_tuple));
+      void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {
+        typedef std::decay_t<typename std::tuple_element<N, std::tuple<ProcessingStages...>>::type> stage_type;
+        (ProcessorHelper<N+1, M, Processor>(m_p))( internal::std_future::apply(&stage_type::map, std::tuple_cat(std::make_tuple(std::get<N>(m_p->m_stage_state)), arg_tuple)) );
       }
     };
 
@@ -166,7 +166,10 @@ class TTreeProcessor {
       ProcessorHelper(Processor *p_) : m_p(p_) {}
       Processor *m_p;
 
-      void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {}
+      void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) __attribute__((always_inline)) {
+        typedef std::decay_t<typename std::tuple_element<N, std::tuple<ProcessingStages...>>::type> stage_type;
+        internal::std_future::apply(&stage_type::map, std::tuple_cat(std::make_tuple(std::get<N>(m_p->m_stage_state)), arg_tuple));
+      }
     };
 
     void

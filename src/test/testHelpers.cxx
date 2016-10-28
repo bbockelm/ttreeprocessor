@@ -6,22 +6,26 @@ using namespace ROOT::internal;
 class MapOne {
   public:
     std::tuple<int, int> operator()(float, float) {}
+    std::tuple<int, int> map(float, float) {}
 };
 
 class MapTwo {
   public:
-    std::tuple<double, double> operator()(int, int) {}
+    std::tuple<double, double> map(int, int) {}
 };
 
 class MapThree {
   public:
-    int operator()(double, double) {}
+    int map(double, double) {}
 };
 
 class MapFour {
   public:
-    int operator()(float) {}
+    int map(float) {}
 };
+
+static_assert(std::is_same<std::result_of<decltype(&MapOne::map)(MapOne, float, float)>::type, std::tuple<int, int>>::value, "");
+
 
 static_assert(std::is_same< result_of_unpacked_tuple<0, 2, MapOne, std::tuple<float, float>>::type, std::tuple<int, int> >::value, "");
 static_assert(std::is_same< result_of_unpacked_tuple<0, 2, MapThree, std::tuple<double, double>>::type, int >::value, "");
