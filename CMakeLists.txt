@@ -9,6 +9,10 @@ add_definitions(-O3)
 
 find_package(ROOT REQUIRED COMPONENTS RIO)
 
+include_directories( src )
+
 add_executable(testProcessor src/test.cxx)
+add_executable(testBackports src/test/testBackports.cxx)
+#add_executable(testProcessor src/test.cxx)
 #target_link_libraries(testProcessor ${ROOT_LIBRARIES})
 
