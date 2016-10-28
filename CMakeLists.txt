@@ -11,8 +11,8 @@ find_package(ROOT REQUIRED COMPONENTS RIO)
 
 include_directories( src )
 
-add_executable(testProcessor src/test.cxx)
+add_executable(testProcessor src/test/testProcessor.cxx)
 add_executable(testBackports src/test/testBackports.cxx)
-#add_executable(testProcessor src/test.cxx)
+add_executable(testHelpers   src/test/testHelpers.cxx)
 #target_link_libraries(testProcessor ${ROOT_LIBRARIES})
 

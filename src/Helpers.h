@@ -1,4 +1,7 @@
 
+#include <string>
+#include <tuple>
+
 /**
  * Various helper functions related to template meta-programming.
  *
@@ -106,7 +109,7 @@ struct ProcessorArgHelper;
 template<unsigned int I, unsigned int J, typename InputArg, typename F, typename... ProcessingStages>
 struct ProcessorArgHelper<I,J, InputArg, F, ProcessingStages...> {
   typedef typename ProcessorArgHelper<I, J-1, InputArg, F, ProcessingStages...>::output_type input_type;
-  typedef typename ProcessorArgHelper<I+1, J, input_type, F, ProcessingStages...>::output_type output_type;
+  typedef typename ProcessorArgHelper<I+1, J, input_type, ProcessingStages...>::output_type output_type;
 };
 
 template<unsigned int I, typename InputArg, typename F, typename... Args>
