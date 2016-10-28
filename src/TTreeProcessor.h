@@ -5,46 +5,10 @@
 
 // We will need std::apply, which isn't available until C++17.
 #include "Backports.h"
+// Various internal meta-programming helpers
+#include "Helpers.h"
 
 namespace ROOT {
-
-namespace internal {
-
-/**
- * For each branch type specification (say, std::tuple<float, int, double>),
- * the user needs to provide a set of corresponding branch names.  This set of
- * templates will generate an appropriate typedef of std::tuple<std::string, ...>
- * given a particular input tuple.
- */
-template<unsigned int I, unsigned int J, typename... Args>
-class convert_to_strings_helper {
-  public:
-    typedef typename convert_to_strings_helper<I+1, J, std::string, Args...>::type type;
-};
-
-template<unsigned int I, typename... Args>
-class convert_to_strings_helper<I, I, Args...> {
-  public:
-    typedef std::tuple<Args...> type;
-};
-
-template<typename... Args>
-class convert_to_strings_helper<1, 0, Args...> {
-  public:
-    typedef std::tuple<> type;
-};
-
-
-template<class BaseClass>
-class convert_to_strings {
-  private:
-    static const int string_count = std::tuple_size<BaseClass>::value;
-
-  public:
-    typedef typename convert_to_strings_helper<1, string_count, std::string>::type type;
-};
-
-}
 
 /**
  * A class for efficiently processing events in a TTree.
@@ -116,123 +80,18 @@ class TTreeProcessorMapperLambda final : public TTreeProcessorMapper<typename st
     T m_fn;
 };
 
-namespace internal {
-/**
- * The lambda-based Mapper will be given a std::tuple<Args...> for the input type; however,
- * we need to unpack the Args directly into the template specification.  This set of classes
- * generate the appropriate type.
- *
- * For example, if we are given a lambda function of type T and know the input is
- * std::tuple<int, double, double>, then we want to generate the type:
- *   TTreeProcessorMapperLambda<T, int, double, double>
- *
- */
-
-template<unsigned int I, unsigned int J, typename T, typename InputTuple, typename... Args>
-struct generate_lambda_helper {
-    typedef typename generate_lambda_helper<I+1, J, T, InputTuple, Args..., typename std::tuple_element<I, InputTuple>::type>::type type;
-};
-
-template<unsigned int I, typename T, typename InputTuple, typename... Args>
-struct generate_lambda_helper<I, I, T, InputTuple, Args...> {
-    typedef TTreeProcessorMapperLambda<T, Args...> type;
-};
-
-template<typename T, class InputTuple>
-class generate_lambda_mapper_type {
-  private:
-    static const int type_count = std::tuple_size<InputTuple>::value;
-
-  public:
-    typedef typename generate_lambda_helper<0, type_count, T, InputTuple>::type type;
-};
-
-}
-
-/**
- * The base class of end-mappers.
- *
- * These are fed the current products of the stream, yet do not
- * return any further values.
- *
- * As with mappers, the `map` function is invoked as const -- it
- * must be thread-safe and will indeed be called from multiple threads.
- *
- * However, the end-mapper additionally has `finalize` called; this is
- * done from a single-threaded context after all events have been processed.
- *
- * For example, if there is a thread-local histogram, we would fill it with
- * each input during `map` and then reduce all the thread-locals into a global
- * histogram during `finalize`.
- */
-/*
-template<std::tuple<InputArgs...>>
-class TTreeProcessorEndMapper {
-  public:
-    virtual void map const (InputArgs...) = 0;
-    virtual void finalize () = 0;
-};
-
-template<std::tuple<Args..>, ProcessingStages...>
-class TTreeProcessorHelper {
-  public:
-    void apply(std::add_lvalue_reference<Args>::type ...);
-};
-*/
-
-/**
- * Given a set of branch types and processing stages, calculate the
- * input / output arguments.
- */
-template<unsigned int I, unsigned int J, typename F, typename InputTuple, typename... Args>
-struct result_of_unpacked_tuple;
-
-template<unsigned int I, unsigned int J, typename F, typename InputTuple, typename... Args>
-struct result_of_unpacked_tuple {
-  typedef typename result_of_unpacked_tuple<I+1, J, F, InputTuple, Args..., typename std::tuple_element<I, InputTuple>::type>::type type;
-};
-
-template<unsigned int I, typename F, typename InputTuple, typename... Args>
-struct result_of_unpacked_tuple <I, I, F, InputTuple, Args...> {
-  /* NOTE: this likely needs to be cleaned up.  We really want to call F.map(Args..) instead. */
-  typedef typename std::result_of<F(Args...)>::type type;
-};
-
-template<unsigned int I, unsigned int J, typename InputArg, typename... ProcessingStages>
-struct ProcessorArgHelper;
-
-template<unsigned int I, unsigned int J, typename InputArg, typename F, typename... ProcessingStages>
-struct ProcessorArgHelper<I,J, InputArg, F, ProcessingStages...> {
-  typedef typename ProcessorArgHelper<I, J-1, InputArg, F, ProcessingStages...>::output_type input_type;
-  typedef typename ProcessorArgHelper<I+1, J, input_type, F, ProcessingStages...>::output_type output_type;
-};
-
-template<unsigned int I, typename InputArg, typename F, typename... Args>
-struct ProcessorArgHelper<I, I, InputArg, F, Args...> {
-  typedef InputArg input_type;
-  typedef typename result_of_unpacked_tuple<0, std::tuple_size<input_type>::value, F, input_type>::type output_type;
-};
-
-template<typename InputArg, typename... ProcessingStages>
-struct ProcessorResult {
-  typedef typename ProcessorArgHelper<0, sizeof...(ProcessingStages)-1, InputArg, ProcessingStages...>::output_type output_type;
-};
-
-template<typename InputArg>
-struct ProcessorResult<InputArg> {
-  typedef InputArg output_type;
-};
 
 class InvalidProcessor : public std::exception {
   public:
     virtual const char *what() const noexcept override {return "Attempting to execute an invalid processor handle";}
 };
 
+
 template<typename BranchTypes, typename ... ProcessingStages>
 class TTreeProcessor {
 
     typedef typename internal::convert_to_strings<BranchTypes>::type branch_spec_tuple;
-    typedef typename ProcessorResult<BranchTypes, ProcessingStages...>::output_type end_type;
+    typedef typename internal::ProcessorResult<BranchTypes, ProcessingStages...>::output_type end_type;
 
   public:
     /**
@@ -293,15 +152,11 @@ class TTreeProcessor {
     static const unsigned int stage_count = sizeof...(ProcessingStages);
 
     template <unsigned int N, unsigned int M, typename Processor>
-    struct ProcessArgHelper {
-    };
-
-    template <unsigned int N, unsigned int M, typename Processor>
     struct ProcessorHelper {
       ProcessorHelper(Processor *p_) : m_p(p_) {}
       Processor *m_p;
 
-      typename ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::output_type operator()(typename ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {
+      typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::output_type operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {
         return ProcessorHelper<N+1, M, Processor>(this)(internal::std_future::apply(std::get<N>(m_p->m_stage_state), arg_tuple));
       }
     };
@@ -311,7 +166,7 @@ class TTreeProcessor {
       ProcessorHelper(Processor *p_) : m_p(p_) {}
       Processor *m_p;
 
-      void operator()(typename ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {}
+      void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {}
     };
 
     void
@@ -323,17 +178,6 @@ class TTreeProcessor {
     branch_spec_tuple m_branches;
     std::tuple<ProcessingStages...> m_stage_state;
 };
-/*
-template<typename BranchTypes, typename ... ProcessingStages, typename Mapper>
-class TTreeProcessor<BranchTypes, ProcessingStages..., Mapper> {
-  public:
-    TTreeProcessor(TTreeProcessor<BranchTypes, ProcessingStages...> &previous, Mapper next) {
-      previous.m_valid = false;
-      m_branches = std::move(previous.m_branches);
-      m_stage_state = std::tuple_cat(std::forward_as_tuple(previous.m_stage_state), next);
-    }
-};
-*/
 
 }
 
