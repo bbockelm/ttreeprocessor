@@ -108,8 +108,9 @@ struct ProcessorArgHelper;
 
 template<unsigned int I, unsigned int J, typename InputArg, typename F, typename... ProcessingStages>
 struct ProcessorArgHelper<I,J, InputArg, F, ProcessingStages...> {
-  typedef typename ProcessorArgHelper<I, J-1, InputArg, F, ProcessingStages...>::output_type input_type;
-  typedef typename ProcessorArgHelper<I+1, J, input_type, ProcessingStages...>::output_type output_type;
+  typedef typename ProcessorArgHelper<0, J-1, InputArg, F, ProcessingStages...>::output_type input_type;
+  typedef typename ProcessorArgHelper<0, 0, InputArg, F, ProcessingStages...>::output_type next_input_arg;
+  typedef typename ProcessorArgHelper<I+1, J, next_input_arg, ProcessingStages...>::output_type output_type;
 };
 
 template<unsigned int I, typename InputArg, typename F, typename... Args>

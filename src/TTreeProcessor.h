@@ -58,9 +58,9 @@ namespace ROOT {
 template<typename T, typename... InputArgs>
 class TTreeProcessorMapper {
   public:
-    virtual T map (InputArgs...) const = 0;
+    T map (InputArgs...) const noexcept {};
 
-    virtual void finalize() {}
+    void finalize() {}
 
     typedef T output_type;
 };
@@ -70,7 +70,7 @@ class TTreeProcessorMapperLambda final : public TTreeProcessorMapper<typename st
   public:
     TTreeProcessorMapperLambda(const T& fn) : m_fn(fn) {}
 
-    virtual typename std::result_of<T(InputArgs...)>::type map (InputArgs ...args) const override {
+    typename std::result_of<T(InputArgs...)>::type map (InputArgs ...args) const noexcept {
       return m_fn(args...);
     }
 
