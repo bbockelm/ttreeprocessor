@@ -12,13 +12,13 @@
 
 namespace ROOT {
 
-// Forward dec'l for generate_lambda_mapper_type below.
-template<typename T, typename... InputArgs> class TTreeProcessorMapperLambda;
+class TTreeMapper {};
+class TTreeFilter {};
 
 namespace internal {
 
 /**
- *  GENERATE A TYPENAME FOR THE TTreeProcessorMapperLambda.
+ *  GENERATE A TYPENAME FOR THE TTreeProcessor*Lambda templates.
  *
  * The lambda-based Mapper will be given a std::tuple<Args...> for the input type; however,
  * we need to unpack the Args directly into the template specification.  This set of classes
@@ -30,23 +30,23 @@ namespace internal {
  *
  */
 
-template<unsigned int I, unsigned int J, typename T, typename InputTuple, typename... Args>
+template<unsigned int I, unsigned int J, template<typename T, typename... Args> class LambdaClass, typename T, typename InputTuple, typename... Args>
 struct generate_lambda_helper {
-    typedef typename generate_lambda_helper<I+1, J, T, InputTuple, Args..., typename std::tuple_element<I, InputTuple>::type>::type type;
+    typedef typename generate_lambda_helper<I+1, J, LambdaClass, T, InputTuple, Args..., typename std::tuple_element<I, InputTuple>::type>::type type;
 };
 
-template<unsigned int I, typename T, typename InputTuple, typename... Args>
-struct generate_lambda_helper<I, I, T, InputTuple, Args...> {
-    typedef TTreeProcessorMapperLambda<T, Args...> type;
+template<unsigned int I, template<typename T, typename... Args> class LambdaClass, typename T, typename InputTuple, typename... Args>
+struct generate_lambda_helper<I, I, LambdaClass, T, InputTuple, Args...> {
+    typedef LambdaClass<T, Args...> type;
 };
 
-template<typename T, class InputTuple>
-class generate_lambda_mapper_type {
+template<template<typename T, typename... Args> class LambdaClass, typename T, class InputTuple>
+class generate_lambda_type {
   private:
     static const int type_count = std::tuple_size<InputTuple>::value;
 
   public:
-    typedef typename generate_lambda_helper<0, type_count, T, InputTuple>::type type;
+    typedef typename generate_lambda_helper<0, type_count, LambdaClass, T, InputTuple>::type type;
 };
 
 /**
@@ -90,17 +90,23 @@ class convert_to_strings {
  * input / output arguments.
  */
 template<unsigned int I, unsigned int J, typename F, typename InputTuple, typename... Args>
-struct result_of_unpacked_tuple;
+struct result_of_unpacked_tuple_helper;
 
 template<unsigned int I, unsigned int J, typename F, typename InputTuple, typename... Args>
-struct result_of_unpacked_tuple {
-  typedef typename result_of_unpacked_tuple<I+1, J, F, InputTuple, Args..., typename std::tuple_element<I, InputTuple>::type>::type type;
+struct result_of_unpacked_tuple_helper {
+  typedef typename result_of_unpacked_tuple_helper<I+1, J, F, InputTuple, Args..., typename std::tuple_element<I, InputTuple>::type>::type type;
 };
 
 template<unsigned int I, typename F, typename InputTuple, typename... Args>
-struct result_of_unpacked_tuple <I, I, F, InputTuple, Args...> {
-  /* NOTE: this likely needs to be cleaned up.  We really want to call F.map(Args..) instead. */
+struct result_of_unpacked_tuple_helper <I, I, F, InputTuple, Args...> {
   typedef typename std::result_of<decltype(&F::map)(F, Args...)>::type type;
+};
+
+template<typename F, typename InputTuple>
+struct result_of_unpacked_tuple {
+  typedef typename result_of_unpacked_tuple_helper<0, std::tuple_size<InputTuple>::value, F, InputTuple>::type type;
+
+  type foo(typename std::enable_if<std::is_base_of<TTreeMapper, F>::value, int>::type = 0) {}
 };
 
 template<unsigned int I, unsigned int J, typename InputArg, typename... ProcessingStages>
@@ -116,7 +122,7 @@ struct ProcessorArgHelper<I,J, InputArg, F, ProcessingStages...> {
 template<unsigned int I, typename InputArg, typename F, typename... Args>
 struct ProcessorArgHelper<I, I, InputArg, F, Args...> {
   typedef InputArg input_type;
-  typedef typename result_of_unpacked_tuple<0, std::tuple_size<input_type>::value, F, input_type>::type output_type;
+  typedef typename std::result_of<decltype(&result_of_unpacked_tuple<F, input_type>::foo)(result_of_unpacked_tuple<F, input_type>, int)>::type output_type;
 };
 
 template<typename InputArg, typename... ProcessingStages>

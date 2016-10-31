@@ -56,7 +56,7 @@ namespace ROOT {
  * to a member variable must be THREAD SAFE!
  */
 template<typename T, typename... InputArgs>
-class TTreeProcessorMapper {
+class TTreeProcessorMapper : public TTreeMapper {
   public:
     T map (InputArgs...) const noexcept {};
 
@@ -65,12 +65,44 @@ class TTreeProcessorMapper {
     typedef T output_type;
 };
 
+
+/**
+ * Definition of a mapper derived from a user-provided lambda function.
+ */
 template<typename T, typename... InputArgs>
 class TTreeProcessorMapperLambda final : public TTreeProcessorMapper<typename std::result_of<T(InputArgs...)>::type, InputArgs...> {
   public:
     TTreeProcessorMapperLambda(const T& fn) : m_fn(fn) {}
 
     typename std::result_of<T(InputArgs...)>::type map (InputArgs ...args) const noexcept {
+      return m_fn(args...);
+    }
+
+  private:
+    T m_fn;
+};
+
+
+/**
+ * Base class of a filter.
+ */
+template<typename... InputArgs>
+class TTreeProcessorFilter : public TTreeFilter {
+  public:
+    bool filter(InputArgs...) const noexcept {};
+
+    void finalize() {}
+};
+
+/**
+ * Filters derived from a user-provided lambda.
+ */
+template<typename T, typename... InputArgs>
+class TTreeProcessorFilterLambda final : public TTreeProcessorFilter<InputArgs...> {
+  public:
+    TTreeProcessorFilterLambda(const T& fn) : m_fn(fn) {}
+
+    bool filter(InputArgs ...args) const noexcept {
       return m_fn(args...);
     }
 
@@ -120,15 +152,29 @@ class TTreeProcessor {
      * - Returns a std::tuple.
      */
     template<typename T> // Hm - it's not clear if we can enforce any of the above with type traits?
-    TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_mapper_type<T, end_type>::type> &&
+    TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type> &&
     map(const T& fn) {
 
       m_valid = false;
-      //typename internal::generate_lambda_mapper_type<T, end_type>::type myMapper(fn);
-      //auto states = std::tuple_cat(m_stage_state, std::make_tuple(myMapper));
-      return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_mapper_type<T, end_type>::type>
+      return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type>
           (m_branches,
-           std::tuple_cat(m_stage_state, std::forward_as_tuple( typename internal::generate_lambda_mapper_type<T, end_type>::type (fn)  ))
+           std::tuple_cat(m_stage_state, std::forward_as_tuple( typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type (fn)  ))
+          ));
+    }
+
+    /**
+     * Add a filter stage to the processor.  The argument must be a lambda that
+     * - Takes the output from the previous stage as input.
+     * - Returns a bool.
+     * If the lambda returns false, the current event is ignored for the rest of the chain.
+     */
+    template<typename T>  // TODO: enforce calling signature via type_traits
+    TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type> &&
+    filter(const T& fn) {
+      m_valid = false;
+      return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type>
+          (m_branches,
+           std::tuple_cat(m_stage_state, std::forward_as_tuple( typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type(fn) ))
           ));
     }
 

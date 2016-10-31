@@ -3,28 +3,28 @@
 
 using namespace ROOT::internal;
 
-class MapOne {
+class MapOne : ROOT::TTreeMapper {
   public:
     std::tuple<int, int> operator()(float, float) {}
     std::tuple<int, int> map(float, float) {}
 };
 
-class MapTwo {
+class MapTwo : ROOT::TTreeMapper {
   public:
     std::tuple<double, double> map(int, int) {}
 };
 
-class MapThree {
+class MapThree : ROOT::TTreeMapper {
   public:
     std::tuple<int> map(double, double) {}
 };
 
-class MapFour {
+class MapFour : ROOT::TTreeMapper {
   public:
     int map(float) {}
 };
 
-class MapFive {
+class MapFive : ROOT::TTreeMapper {
   public:
     std::tuple<int> map(int);
 };
@@ -32,8 +32,8 @@ class MapFive {
 static_assert(std::is_same<std::result_of<decltype(&MapOne::map)(MapOne, float, float)>::type, std::tuple<int, int>>::value, "");
 
 
-static_assert(std::is_same< result_of_unpacked_tuple<0, 2, MapOne, std::tuple<float, float>>::type, std::tuple<int, int> >::value, "");
-static_assert(std::is_same< result_of_unpacked_tuple<0, 2, MapThree, std::tuple<double, double>>::type, std::tuple<int> >::value, "");
+static_assert(std::is_same< result_of_unpacked_tuple<MapOne, std::tuple<float, float>>::type, std::tuple<int, int> >::value, "");
+static_assert(std::is_same< result_of_unpacked_tuple<MapThree, std::tuple<double, double>>::type, std::tuple<int> >::value, "");
 
 static_assert(std::is_same<ProcessorArgHelper<0, 0, std::tuple<float, float>, MapOne, MapTwo, MapThree>::input_type, std::tuple<float, float>>::value, "");
 static_assert(std::is_same<ProcessorArgHelper<0, 0, std::tuple<float, float>, MapOne, MapTwo, MapThree>::output_type, std::tuple<int, int>>::value, "");
