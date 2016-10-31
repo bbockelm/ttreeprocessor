@@ -86,9 +86,21 @@ class convert_to_strings {
 };
 
 /**
- * Given a set of branch types and processing stages, calculate the
+ * Given a set of branch types and a list of processing stages, calculate the
  * input / output arguments.
+ *
+ * This requires us to examine each function F(Args...) -> std::tuple<Args2...> and
+ * apply them in a chain.
+ *
+ * Notes:
+ * - result_of_unpacked_tuple* takes the output tuple (std::tuple<Args2...>) and a class F,
+ *   then calculates the result of F::map(Args2...).
+ * - ProcessorApply will look at the base type of F and determine whether or not it is a
+ *   mapper; if it is not, then it assumes the types in the chain are unchanged.
+ * - ProcessorArgHelper is the user-visible interface: you give it a list of processing stages
+ *   and the offset in the stage, and it will calculate the input and output arguments.
  */
+
 template<unsigned int I, unsigned int J, typename F, typename InputTuple, typename... Args>
 struct result_of_unpacked_tuple_helper;
 
@@ -105,8 +117,34 @@ struct result_of_unpacked_tuple_helper <I, I, F, InputTuple, Args...> {
 template<typename F, typename InputTuple>
 struct result_of_unpacked_tuple {
   typedef typename result_of_unpacked_tuple_helper<0, std::tuple_size<InputTuple>::value, F, InputTuple>::type type;
+};
 
-  type foo(typename std::enable_if<std::is_base_of<TTreeMapper, F>::value, int>::type = 0) {}
+/**
+ * ProcessorApply and ProcessorApplyHelper take a class type (F):
+ *
+ * - If F derives from TTreeMapper, then apply the unpacked tuple to the
+ *   class's map function.
+ * - Otherwise, assume that the class descends from TTreeFilter and assume.
+ *   the stream's types are unchanged (as the filter simply removes events,
+ *   not changes types).
+ */
+template<unsigned int I, typename F, typename InputArg>
+struct ProcessorApplyHelper;
+
+template<typename F, typename InputArg>
+struct ProcessorApplyHelper<0, F, InputArg> {
+  typedef InputArg type;
+};
+
+template<typename F, typename InputArg>
+struct ProcessorApplyHelper<1, F, InputArg> {
+  typedef typename result_of_unpacked_tuple<F, InputArg>::type type;
+};
+
+template<typename F, typename InputArg>
+struct ProcessorApply {
+  static const unsigned int is_mapper = std::is_base_of<TTreeMapper, F>::value;
+  typedef typename ProcessorApplyHelper<is_mapper, F, InputArg>::type type;
 };
 
 template<unsigned int I, unsigned int J, typename InputArg, typename... ProcessingStages>
@@ -114,17 +152,30 @@ struct ProcessorArgHelper;
 
 template<unsigned int I, unsigned int J, typename InputArg, typename F, typename... ProcessingStages>
 struct ProcessorArgHelper<I,J, InputArg, F, ProcessingStages...> {
+  // This is the input tuple for the Jth function in ProcessingStages.
   typedef typename ProcessorArgHelper<0, J-1, InputArg, F, ProcessingStages...>::output_type input_type;
+  // This is the next input type for ProcessingStages.
   typedef typename ProcessorArgHelper<0, 0, InputArg, F, ProcessingStages...>::output_type next_input_arg;
+  // This is the output tuple for the Jth function in ProcessingStages.
   typedef typename ProcessorArgHelper<I+1, J, next_input_arg, ProcessingStages...>::output_type output_type;
 };
 
 template<unsigned int I, typename InputArg, typename F, typename... Args>
 struct ProcessorArgHelper<I, I, InputArg, F, Args...> {
   typedef InputArg input_type;
-  typedef typename std::result_of<decltype(&result_of_unpacked_tuple<F, input_type>::foo)(result_of_unpacked_tuple<F, input_type>, int)>::type output_type;
+  typedef typename ProcessorApply<F, input_type>::type output_type;
 };
 
+template<unsigned int I, typename InputArg>
+struct ProcessorArgHelper<I, I, InputArg> {
+  typedef InputArg input_type;
+  typedef InputArg output_type;
+};
+
+/**
+ * ProcessorResult calculates the final output type after all the processing stages, given a particular
+ * input type.
+ */
 template<typename InputArg, typename... ProcessingStages>
 struct ProcessorResult {
   typedef typename ProcessorArgHelper<0, sizeof...(ProcessingStages)-1, InputArg, ProcessingStages...>::output_type output_type;
@@ -133,6 +184,25 @@ struct ProcessorResult {
 template<typename InputArg>
 struct ProcessorResult<InputArg> {
   typedef InputArg output_type;
+};
+
+/**
+ * Given a list of stages, determine whether stage N is a mapper.
+ */
+
+template<unsigned int I, unsigned int J, typename F, typename... ProcessingStages>
+struct GetStageTypeHelper {
+  static const unsigned int value = GetStageTypeHelper<I+1, J, ProcessingStages...>::value;
+};
+
+template<unsigned int N, typename F, typename... ProcessingStages>
+struct GetStageTypeHelper<N, N, F, ProcessingStages...> {
+  static const unsigned int value = std::is_base_of<TTreeMapper, F>::value;
+};
+
+template<unsigned int N, typename... ProcessingStages>
+struct GetStageType {
+  static const unsigned int value = GetStageTypeHelper<0, N, ProcessingStages...>::value;
 };
 
 }  // internal

@@ -21,9 +21,15 @@ private:
 
 int main(int argc, char *argv[]) {
 
+  ROOT::TTreeProcessor<std::tuple<float, int, double>> processor_filter({"a", "b", "c"});
+  processor_filter
+  .filter([](float x, int y, double z) -> bool {if (x>5) {std::cout << "Filtering out input of " << x << "\n";} return x <= 5;})
+  .process();
+
   ROOT::TTreeProcessor<std::tuple<float, int, double>> processor({"a", "b", "c"});
   processor
   .map([](float x, int y, double z) -> std::tuple<int, float> {std::cout << "First mapper got X input of " << x << "\n"; return std::make_tuple(y, x);})
+  .filter([](int x, float y) {if (y > 5) {std::cout << "Filtering out input of " << y << "\n";} return y <= 5;})
   .map([](int x, float y) -> std::tuple<int> {std::cout << "Second mapper got X input of " << x << "\n"; return std::make_tuple(x*x+1);})
   .map([](int x) -> std::tuple<int> {std::cout << "Third mapper got X input of " << x << "\n"; return std::make_tuple(x*x+1);})
   .process();
