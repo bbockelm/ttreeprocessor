@@ -3,10 +3,14 @@
 #include <string>
 #include <vector>
 
+#include "TFile.h"
+#include "TTreeReader.h"
+
 // We will need std::apply, which isn't available until C++17.
 #include "Backports.h"
 // Various internal meta-programming helpers
 #include "Helpers.h"
+#include "RootHelpers.h"
 
 namespace ROOT {
 
@@ -179,18 +183,21 @@ class TTreeProcessor {
     }
 
     /**
-     * Actually perform the processing.
-     * TODO: Eventually take a TTree object.  For now, we'll just loop over various numbers.
+     * Process a set of TTrees in a list of files.
+     * 
      */
-    void process() {
+    void process(const std::string &treeName, std::vector<TFile*> inputFiles) {
       if (!m_valid) {throw InvalidProcessor();}
-      auto initial_data = std::make_tuple(1, 2, 3);
 
-      for (int i=0; i<10; i++) {
-          std::get<0>(initial_data) = i;
-          process_stages_helper(initial_data);
+      for (auto tf : inputFiles) {
+          TTreeReader myReader(treeName.c_str(), tf);
+          auto readerValues = internal::make_reader_tuple<BranchTypes>(myReader, m_branches);
+          while (myReader.Next()) {
+              BranchTypes event_data = internal::read_event_data<BranchTypes>(readerValues);
+              process_stages_helper(event_data);
+          }
+          //TODO: call finalize in the end...
       }
-      //TODO: call finalize in the end...
     }
 
   private:

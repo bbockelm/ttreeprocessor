@@ -4,15 +4,32 @@ project(TTreeProcessor)
 
 list(APPEND CMAKE_PREFIX_PATH $ENV{ROOTSYS})
 
-add_definitions(-std=c++1z)
+add_definitions(-std=c++14)
 add_definitions(-O3)
 
-find_package(ROOT REQUIRED COMPONENTS RIO)
+find_package(ROOT REQUIRED COMPONENTS RIO TreePlayer)
+include(${ROOT_USE_FILE})
 
 include_directories( src )
 
+ROOT_GENERATE_DICTIONARY(G__Event src/test/event/Event.h LINKDEF src/test/event/EventLinkDef.h)
+add_library(Event SHARED src/test/event/Event.cxx G__Event.cxx)
+target_link_libraries(Event ${ROOT_LIBRARIES})
+add_executable(testEvent src/test/MainEvent.cxx)
+target_link_libraries(testEvent Event)
+target_include_directories(testEvent PRIVATE src/test/event)
+
+ROOT_GENERATE_DICTIONARY(G__SillyStruct src/test/SillyStruct.h LINKDEF src/test/SillyStructLinkDef.h)
+add_library(SillyStruct SHARED src/test/SillyStruct.cxx G__SillyStruct.cxx)
+target_link_libraries(SillyStruct ${ROOT_LIBRARIES})
+add_executable(testSillyStruct src/test/MainSillyStruct.cxx)
+target_link_libraries(testSillyStruct SillyStruct)
+
 add_executable(testProcessor src/test/testProcessor.cxx)
+target_link_libraries(testProcessor ${ROOT_LIBRARIES})
 add_executable(testBackports src/test/testBackports.cxx)
 add_executable(testHelpers   src/test/testHelpers.cxx)
+add_executable(testRootHelpers src/test/testRootHelpers.cxx)
+target_link_libraries(testRootHelpers ${ROOT_LIBRARIES})
 #target_link_libraries(testProcessor ${ROOT_LIBRARIES})
 
