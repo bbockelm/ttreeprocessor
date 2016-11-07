@@ -2,9 +2,14 @@
 #include <tuple>
 #include <string>
 #include <vector>
+#include <numeric>
+
+#include "tbb/task_group.h"
+#include "tbb/enumerable_thread_specific.h"
 
 #include "TFile.h"
 #include "TTreeReader.h"
+#include "ROOT/TThreadedObject.hxx"
 
 // We will need std::apply, which isn't available until C++17.
 #include "Backports.h"
@@ -64,7 +69,7 @@ class TTreeProcessorMapper : public TTreeMapper {
   public:
     T map (InputArgs...) const noexcept {};
 
-    void finalize() {}
+    bool finalize() {return true;}
 
     typedef T output_type;
 };
@@ -86,6 +91,32 @@ class TTreeProcessorMapperLambda final : public TTreeProcessorMapper<typename st
     T m_fn;
 };
 
+/**
+ * Counts the number of events seen by a mapper.
+ * Prints the final number out at the end.
+ */
+template<typename... InputArgs>
+class TTreeProcessorCountPrinter final : public TTreeProcessorMapper<std::tuple<InputArgs...>, InputArgs...> {
+  typedef tbb::enumerable_thread_specific<int> EventCounter;
+
+  public:
+    TTreeProcessorCountPrinter() : m_counter(0) {}
+
+    std::tuple<InputArgs...> map (InputArgs... args) const noexcept {
+      EventCounter::reference my_counter = m_counter.local();
+      ++my_counter;
+
+      return std::make_tuple(args...);
+    }
+
+    bool finalize() {
+      int sum = std::accumulate(m_counter.begin(), m_counter.end(), 0);
+      std::cout << "Counter saw " << sum << " events.\n";
+    }
+
+  private:
+    mutable EventCounter m_counter;
+};
 
 /**
  * Base class of a filter.
@@ -95,7 +126,7 @@ class TTreeProcessorFilter : public TTreeFilter {
   public:
     bool filter(InputArgs...) const noexcept {};
 
-    void finalize() {}
+    bool finalize() {return true;}
 };
 
 /**
@@ -118,6 +149,22 @@ class TTreeProcessorFilterLambda final : public TTreeProcessorFilter<InputArgs..
 class InvalidProcessor : public std::exception {
   public:
     virtual const char *what() const noexcept override {return "Attempting to execute an invalid processor handle";}
+};
+
+
+class NoSuchTree : public std::exception {
+
+  public:
+    NoSuchTree(const std::string & treename, TFile *tf) {
+      std::stringstream ss;
+      ss << "No tree named " << treename << " in file " << tf->GetEndpointUrl()->GetUrl();
+      m_msg = ss.str();
+    }
+
+    virtual const char *what() const noexcept override {return m_msg.c_str();}
+
+  private:
+    std::string m_msg;
 };
 
 
@@ -183,6 +230,18 @@ class TTreeProcessor {
     }
 
     /**
+     * Add a verbose counter - prints out how many events passed the map function.
+     */
+    TTreeProcessor<BranchTypes, ProcessingStages..., TTreeProcessorCountPrinter<end_type>> &&
+    count() {
+      m_valid = false;
+      return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., TTreeProcessorCountPrinter<end_type>>
+          (m_branches,
+           std::tuple_cat(m_stage_state, std::forward_as_tuple( TTreeProcessorCountPrinter<end_type>() ))
+          ));
+    }
+
+    /**
      * Process a set of TTrees in a list of files.
      * 
      */
@@ -196,8 +255,47 @@ class TTreeProcessor {
               BranchTypes event_data = internal::read_event_data<BranchTypes>(readerValues);
               process_stages_helper(event_data);
           }
-          //TODO: call finalize in the end...
       }
+      finalize();
+    }
+
+    void processParallel(const std::string &treeName, std::vector<TFile*> inputFiles) {
+      if (!m_valid) {throw InvalidProcessor();}
+
+      tbb::task_group g;
+      std::vector<std::shared_ptr<ROOT::TThreadedObject<internal::TFileHelper>>> scope_helper;  // Keep TThreadedObject in-scope.
+      scope_helper.reserve(inputFiles.size());
+      for (auto tf : inputFiles) {
+          scope_helper.emplace_back(std::make_shared<ROOT::TThreadedObject<internal::TFileHelper>>(tf->GetEndpointUrl()->GetUrl()));
+          ROOT::TThreadedObject<internal::TFileHelper> &ts_file = *(scope_helper.back());
+          Long64_t clusterStart;
+          TTree *tree = static_cast<TTree*>(tf->GetObjectChecked(treeName.c_str(), "TTree"));
+          if (!tree) {
+              throw NoSuchTree(treeName, tf);
+          }
+          TTree::TClusterIterator clusterIter = tree->GetClusterIterator(0);
+          while ( (clusterStart = clusterIter()) < tree->GetEntries() ) {
+              Long64_t clusterEnd = clusterIter.GetNextEntry();
+              g.run([&, clusterStart, clusterEnd]() {
+                  // TODO: Would make a lot of sense to reuse the reader/value objects via TThreadedObject.
+                  TFile *tf = (ts_file.Get())->get();
+                  if (!tf) {
+                    std::cerr << "Failed to get thread-safe TFile object.\n";
+                    return;
+                  }
+                  TTreeReader myReader(treeName.c_str(), tf);
+                  auto readerValues = internal::make_reader_tuple<BranchTypes>(myReader, m_branches);
+                  myReader.SetEntriesRange(clusterStart, clusterEnd);
+
+                  while (myReader.Next()) {
+                      BranchTypes event_data = internal::read_event_data<BranchTypes>(readerValues);
+                      process_stages_helper(event_data);
+                  }
+              });
+          }
+      }
+      g.wait();
+      finalize();
     }
 
   private:
@@ -276,6 +374,17 @@ class TTreeProcessor {
     process_stages_helper(BranchTypes args) {
       ProcessorHelper<0, stage_count-1, internal::GetStageType<0, ProcessingStages...>::value, typename std::decay<decltype(*this)>::type>(this)(args);
     };
+
+    // Invoke all the finalize methods.
+    template <std::size_t ...I>
+    void finalize_helper (std::index_sequence<I...>) {
+        std::make_tuple(std::get<I>(m_stage_state).finalize() ...);
+    }
+
+    void
+    finalize() {
+        finalize_helper( std::make_index_sequence< sizeof...(ProcessingStages) >() );
+    }
 
     bool m_valid{true};
     branch_spec_tuple m_branches;

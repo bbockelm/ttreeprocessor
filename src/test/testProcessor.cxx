@@ -11,7 +11,7 @@ public:
 
   std::tuple<int> map(float, int, double) const noexcept __attribute__((always_inline)) {count++; return 1;}
 
-  void finalize() {std::cout << "There were " << count << "events.\n";}
+  bool finalize() {std::cout << "There were " << count << "events.\n"; return true;}
 
 private:
   // Hmm... this suppresses move-constructors.

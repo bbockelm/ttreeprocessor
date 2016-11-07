@@ -1,6 +1,7 @@
 
 #include <memory>
 
+#include "TFile.h"
 #include "TTreeReader.h"
 
 #include "Helpers.h"
@@ -37,6 +38,17 @@ BranchTypes
 read_event_data(ReaderType& readers) {
     return read_event_data_helper<BranchTypes>(readers, std::make_index_sequence< std::tuple_size<BranchTypes>::value >());
 }
+
+// Helper to generate a valid TFile
+class TFileHelper {
+public:
+    TFileHelper(const std::string &fname) : m_tf(TFile::Open(fname.c_str())) {}
+
+    TFile *get() {return m_tf;}
+
+private:
+    TFile *m_tf{nullptr};
+};
 
 }  // namespace internal
 
