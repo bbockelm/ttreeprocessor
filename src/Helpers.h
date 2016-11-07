@@ -1,4 +1,7 @@
 
+#ifndef __ROOT_Helpers_H_
+#define __ROOT_Helpers_H_
+
 #include <string>
 #include <tuple>
 
@@ -208,4 +211,6 @@ struct GetStageType {
 }  // internal
 
 }  // ROOT
+
+#endif  // __ROOT_Helpers_H_
 

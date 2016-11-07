@@ -26,8 +26,10 @@ add_executable(testSillyStruct src/test/MainSillyStruct.cxx)
 target_link_libraries(testSillyStruct SillyStruct)
 
 add_executable(testProcessor src/test/testProcessor.cxx)
+target_link_libraries(testProcessor ${ROOT_LIBRARIES})
 add_executable(testBackports src/test/testBackports.cxx)
 add_executable(testHelpers   src/test/testHelpers.cxx)
 add_executable(testRootHelpers src/test/testRootHelpers.cxx)
+target_link_libraries(testRootHelpers ${ROOT_LIBRARIES})
 #target_link_libraries(testProcessor ${ROOT_LIBRARIES})
 

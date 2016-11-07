@@ -186,14 +186,14 @@ class TTreeProcessor {
      * Process a set of TTrees in a list of files.
      * 
      */
-    void process(std::string &treeName, std::vector<TFile*> inputFiles) {
+    void process(const std::string &treeName, std::vector<TFile*> inputFiles) {
       if (!m_valid) {throw InvalidProcessor();}
 
       for (auto tf : inputFiles) {
-          TTreeReader myReader(treeName, tf);
+          TTreeReader myReader(treeName.c_str(), tf);
           auto readerValues = internal::make_reader_tuple<BranchTypes>(myReader, m_branches);
           while (myReader.Next()) {
-              BranchTypes event_data = internal::read_event_data<BranchTypes>(readerValues)
+              BranchTypes event_data = internal::read_event_data<BranchTypes>(readerValues);
               process_stages_helper(event_data);
           }
           //TODO: call finalize in the end...
