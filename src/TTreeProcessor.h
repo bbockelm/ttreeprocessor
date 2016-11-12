@@ -5,6 +5,7 @@
 #include <numeric>
 
 #include "tbb/task_group.h"
+//#include "tbb/combinable.h"
 #include "tbb/enumerable_thread_specific.h"
 
 #include "TFile.h"
@@ -67,6 +68,10 @@ namespace ROOT {
 template<typename T, typename... InputArgs>
 class TTreeProcessorMapper : public TTreeMapper {
   public:
+    TTreeProcessorMapper() {}
+    TTreeProcessorMapper(const TTreeProcessorMapper&) = delete;
+    TTreeProcessorMapper(TTreeProcessorMapper&&) = default;
+
     T map (InputArgs...) const noexcept {};
 
     bool finalize() {return true;}
@@ -91,6 +96,8 @@ class TTreeProcessorMapperLambda final : public TTreeProcessorMapper<typename st
     T m_fn;
 };
 
+void __attribute__((noinline)) foo() {std::cout << "foo\n";}
+
 /**
  * Counts the number of events seen by a mapper.
  * Prints the final number out at the end.
@@ -100,17 +107,33 @@ class TTreeProcessorCountPrinter final : public TTreeProcessorMapper<std::tuple<
   typedef tbb::enumerable_thread_specific<int> EventCounter;
 
   public:
-    TTreeProcessorCountPrinter() : m_counter(0) {}
+    TTreeProcessorCountPrinter() : m_counter(0) {
+      std::cout << "Creating new instance of Counter.\n";
+    }
+
+    TTreeProcessorCountPrinter(TTreeProcessorCountPrinter && rhs) {
+      std::cout << "Moving a counter.\n";
+      foo();
+      m_counter = std::move(rhs.m_counter);
+    }
+
+    TTreeProcessorCountPrinter(const TTreeProcessorCountPrinter & rhs) {
+      std::cout << "Copying a counter.\n";
+      int sum = std::accumulate(rhs.m_counter.begin(), rhs.m_counter.end(), 0);
+      m_counter = EventCounter(sum);
+    }
 
     std::tuple<InputArgs...> map (InputArgs... args) const noexcept {
-      EventCounter::reference my_counter = m_counter.local();
-      ++my_counter;
+      //EventCounter::reference my_counter = m_counter->local();
+      //++m_counter->local();
+      m_counter.local()++;
 
       return std::make_tuple(args...);
     }
 
     bool finalize() {
       int sum = std::accumulate(m_counter.begin(), m_counter.end(), 0);
+      //int sum = m_counter->combine([](int x, int y) {return x+y;});
       std::cout << "Counter saw " << sum << " events.\n";
     }
 
@@ -124,6 +147,10 @@ class TTreeProcessorCountPrinter final : public TTreeProcessorMapper<std::tuple<
 template<typename... InputArgs>
 class TTreeProcessorFilter : public TTreeFilter {
   public:
+    TTreeProcessorFilter() {}
+    TTreeProcessorFilter(const TTreeProcessorFilter&) = delete;
+    TTreeProcessorFilter(TTreeProcessorFilter&&) = default;
+
     bool filter(InputArgs...) const noexcept {};
 
     bool finalize() {return true;}
@@ -173,6 +200,8 @@ class TTreeProcessor {
 
     typedef typename internal::convert_to_strings<BranchTypes>::type branch_spec_tuple;
     typedef typename internal::ProcessorResult<BranchTypes, ProcessingStages...>::output_type end_type;
+    template<class T> using stage_initializer_t = typename std::conditional<std::is_move_constructible<T>::value, T&&, T&>::type;
+    template<class T> using stage_storage_t = typename std::conditional<std::is_move_constructible<T>::value, T, T&>::type;
 
   public:
     /**
@@ -182,18 +211,22 @@ class TTreeProcessor {
      * At runtime, we will check that the specified branches actually match the
      * templated class parameters.
      */
-    TTreeProcessor(const branch_spec_tuple & branches, ProcessingStages... state) : m_branches(branches), m_stage_state(std::make_tuple(state...))
+
+    explicit
+    TTreeProcessor(const branch_spec_tuple & branches, internal::stage_initializer_t<ProcessingStages>... state) : m_branches(branches), m_stage_state(std::forward_as_tuple(std::move(state)...))
     {
+        ROOT::EnableThreadSafety();
     }
 
-    TTreeProcessor(const branch_spec_tuple &branches, std::tuple<ProcessingStages&&...> state) : m_branches(branches), m_stage_state(state)
-    {}
-
-    TTreeProcessor(TTreeProcessor &&) = default;
+    TTreeProcessor(const branch_spec_tuple &branches, std::tuple<internal::stage_initializer_t<ProcessingStages>...>&& state) : m_branches(branches), m_stage_state(std::move(state))
+    {
+        ROOT::EnableThreadSafety();
+    }
 
     /**
-     * Processor object is not copyable.
+     * Processor object is not copyable or moveable.
      */
+    TTreeProcessor(TTreeProcessor &&) = delete;
     TTreeProcessor(TTreeProcessor const&) = delete;
     TTreeProcessor& operator=(TTreeProcessor const&) = delete;
 
@@ -207,10 +240,18 @@ class TTreeProcessor {
     map(const T& fn) {
 
       m_valid = false;
+      /*
       return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type>
           (m_branches,
            std::tuple_cat(m_stage_state, std::forward_as_tuple( typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type (fn)  ))
           ));
+      */
+      return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type>, decltype(m_branches), decltype(m_stage_state), typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type>
+      (
+          m_branches,
+          m_stage_state,
+          typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type(fn)
+      );
     }
 
     /**
@@ -223,10 +264,17 @@ class TTreeProcessor {
     TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type> &&
     filter(const T& fn) {
       m_valid = false;
-      return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type>
+      /*return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type>
           (m_branches,
            std::tuple_cat(m_stage_state, std::forward_as_tuple( typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type(fn) ))
           ));
+      */
+      return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type>, decltype(m_branches), decltype(m_stage_state), typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type>
+      (
+          m_branches,
+          m_stage_state,
+          typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type(fn)
+      );
     }
 
     /**
@@ -235,10 +283,18 @@ class TTreeProcessor {
     TTreeProcessor<BranchTypes, ProcessingStages..., TTreeProcessorCountPrinter<end_type>> &&
     count() {
       m_valid = false;
+      /*
       return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., TTreeProcessorCountPrinter<end_type>>
           (m_branches,
            std::tuple_cat(m_stage_state, std::forward_as_tuple( TTreeProcessorCountPrinter<end_type>() ))
           ));
+      */
+      return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., TTreeProcessorCountPrinter<end_type>>, decltype(m_branches), decltype(m_stage_state), TTreeProcessorCountPrinter<end_type>>
+      (
+          m_branches,
+          m_stage_state,
+          TTreeProcessorCountPrinter<end_type>()
+      );
     }
 
     /**
@@ -324,7 +380,7 @@ class TTreeProcessor {
 
       void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {
         typedef std::decay_t<typename std::tuple_element<N, std::tuple<ProcessingStages...>>::type> stage_type;
-        (ProcessorHelper<N+1, M, next_is_mapper, Processor>(m_p))( internal::std_future::apply(&stage_type::map, std::tuple_cat(std::make_tuple(std::get<N>(m_p->m_stage_state)), arg_tuple)) );
+        (ProcessorHelper<N+1, M, next_is_mapper, Processor>(m_p))( internal::std_future::apply_method(&stage_type::map, std::get<N>(m_p->m_stage_state), arg_tuple));
       }
     };
 
@@ -338,7 +394,7 @@ class TTreeProcessor {
 
       void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {
         typedef std::decay_t<typename std::tuple_element<N, std::tuple<ProcessingStages...>>::type> stage_type;
-        bool result = internal::std_future::apply(&stage_type::filter, std::tuple_cat(std::make_tuple(std::get<N>(m_p->m_stage_state)), arg_tuple));
+        bool result = internal::std_future::apply_method(&stage_type::filter, std::get<N>(m_p->m_stage_state), arg_tuple);
         if (!result) {return;}  // Event did not pass the filter; stop processing.
         (ProcessorHelper<N+1, M, next_is_mapper, Processor>(m_p))( arg_tuple ); // Pass input argument directly to the next stage.
       }
@@ -352,7 +408,7 @@ class TTreeProcessor {
 
       void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) __attribute__((always_inline)) {
         typedef std::decay_t<typename std::tuple_element<N, std::tuple<ProcessingStages...>>::type> stage_type;
-        internal::std_future::apply(&stage_type::map, std::tuple_cat(std::make_tuple(std::get<N>(m_p->m_stage_state)), arg_tuple));
+        internal::std_future::apply_method(&stage_type::map, std::get<N>(m_p->m_stage_state), arg_tuple);
       }
     };
 
@@ -366,7 +422,7 @@ class TTreeProcessor {
 
       void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) __attribute__((always_inline)) {
         typedef std::decay_t<typename std::tuple_element<N, std::tuple<ProcessingStages...>>::type> stage_type;
-        internal::std_future::apply(&stage_type::filter, std::tuple_cat(std::make_tuple(std::get<N>(m_p->m_stage_state)), arg_tuple));
+        internal::std_future::apply_method(&stage_type::filter, std::get<N>(m_p->m_stage_state), arg_tuple);
       }
     };
 
@@ -388,7 +444,10 @@ class TTreeProcessor {
 
     bool m_valid{true};
     branch_spec_tuple m_branches;
-    std::tuple<ProcessingStages...> m_stage_state;
+
+    // If the type is move constructible, perform the move.
+    // Otherwise, take a reference.
+    std::tuple< stage_storage_t<ProcessingStages>...> m_stage_state;
 };
 
 }

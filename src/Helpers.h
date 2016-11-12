@@ -208,6 +208,25 @@ struct GetStageType {
   static const unsigned int value = GetStageTypeHelper<0, N, ProcessingStages...>::value;
 };
 
+template<class T> using stage_initializer_t = typename std::conditional<std::is_move_constructible<T>::value, T&&, T&>::type;
+template<class T> using stage_storage_t = typename std::conditional<std::is_move_constructible<T>::value, T, T&>::type;
+
+/**
+ * Given a new processor chain, call the constructor appropriately
+ */
+template <class Processor, class BranchSpecType, class StagesTuple, class NewStage, std::size_t... I>
+Processor&& construct_processor_impl(const BranchSpecType &branches, StagesTuple &stages, stage_initializer_t<NewStage> new_stage, std::index_sequence<I...> )
+{
+  return std::move(Processor(branches, std::forward<typename std::tuple_element<I, StagesTuple>::type>(std::get<I>(stages))..., std::forward<stage_initializer_t<NewStage>>(new_stage)));
+}
+
+template <class Processor, class BranchSpecType, class StagesTuple, class NewStage>
+Processor&& construct_processor(const BranchSpecType &branches, StagesTuple &stages, stage_initializer_t<NewStage> new_stage)
+{
+    return construct_processor_impl<Processor, BranchSpecType, StagesTuple, NewStage>(branches, stages, std::move(new_stage), std::make_index_sequence<std::tuple_size<StagesTuple>::value>{});
+}
+
+
 }  // internal
 
 }  // ROOT

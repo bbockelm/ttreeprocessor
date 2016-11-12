@@ -132,6 +132,22 @@ constexpr decltype(auto) apply(F&& f, Tuple&& t)
         std::make_index_sequence<tuple_size_v<std::decay_t<Tuple>>>{});
 }
 
+/** Slight twist on std::apply; makes it easier to do class methods */
+namespace detail {
+template <class F, class F_obj, class Tuple, std::size_t... I>
+constexpr decltype(auto) apply_method_impl( F&& f, F_obj& f_obj, Tuple&& t, std::index_sequence<I...> )
+{
+  return invoke(std::forward<F>(f), f_obj, std::get<I>(std::forward<Tuple>(t))...);
+}
+} // namespace detail
+
+template <class F, class F_obj, class Tuple>
+constexpr decltype(auto) apply_method(F&& f, F_obj& f_obj, Tuple&& t)
+{
+    return detail::apply_method_impl(std::forward<F>(f), f_obj, std::forward<Tuple>(t),
+        std::make_index_sequence<tuple_size_v<std::decay_t<Tuple>>>{});
+}
+
 }  // namespace std_future
 
 }  // namespace internal

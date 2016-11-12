@@ -37,6 +37,10 @@ add_executable(testProcessorParallel src/test/testProcessorParallel.cxx)
 target_link_libraries(testProcessorParallel ${ROOT_LIBRARIES} ${TBB_LIBRARIES})
 target_include_directories(testProcessorParallel PRIVATE ${TBB_INCLUDE_DIRS})
 
+add_executable(testProcessorSimple src/test/testProcessorSimple.cxx)
+target_link_libraries(testProcessorSimple ${ROOT_LIBRARIES} ${TBB_LIBRARIES})
+target_include_directories(testProcessorSimple PRIVATE ${TBB_INCLUDE_DIRS})
+
 add_executable(testBackports src/test/testBackports.cxx)
 add_executable(testHelpers   src/test/testHelpers.cxx)
 add_executable(testRootHelpers src/test/testRootHelpers.cxx)
