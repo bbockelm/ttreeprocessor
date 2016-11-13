@@ -17,6 +17,7 @@
 // Various internal meta-programming helpers
 #include "Helpers.h"
 #include "RootHelpers.h"
+#include "VcHelpers.h"
 
 namespace ROOT {
 
@@ -96,8 +97,6 @@ class TTreeProcessorMapperLambda final : public TTreeProcessorMapper<typename st
     T m_fn;
 };
 
-void __attribute__((noinline)) foo() {std::cout << "foo\n";}
-
 /**
  * Counts the number of events seen by a mapper.
  * Prints the final number out at the end.
@@ -108,17 +107,13 @@ class TTreeProcessorCountPrinter final : public TTreeProcessorMapper<std::tuple<
 
   public:
     TTreeProcessorCountPrinter() : m_counter(0) {
-      std::cout << "Creating new instance of Counter.\n";
     }
 
     TTreeProcessorCountPrinter(TTreeProcessorCountPrinter && rhs) {
-      std::cout << "Moving a counter.\n";
-      foo();
       m_counter = std::move(rhs.m_counter);
     }
 
     TTreeProcessorCountPrinter(const TTreeProcessorCountPrinter & rhs) {
-      std::cout << "Copying a counter.\n";
       int sum = std::accumulate(rhs.m_counter.begin(), rhs.m_counter.end(), 0);
       m_counter = EventCounter(sum);
     }
@@ -199,7 +194,9 @@ template<typename BranchTypes, typename ... ProcessingStages>
 class TTreeProcessor {
 
     typedef typename internal::convert_to_strings<BranchTypes>::type branch_spec_tuple;
-    typedef typename internal::ProcessorResult<BranchTypes, ProcessingStages...>::output_type end_type;
+    typedef BranchTypes start_type;
+    //typedef typename internal::input_tuple_t<BranchTypes, ProcessingStages...> start_type;
+    typedef typename internal::ProcessorResult<start_type, ProcessingStages...>::output_type end_type;
     template<class T> using stage_initializer_t = typename std::conditional<std::is_move_constructible<T>::value, T&&, T&>::type;
     template<class T> using stage_storage_t = typename std::conditional<std::is_move_constructible<T>::value, T, T&>::type;
 
@@ -240,12 +237,6 @@ class TTreeProcessor {
     map(const T& fn) {
 
       m_valid = false;
-      /*
-      return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type>
-          (m_branches,
-           std::tuple_cat(m_stage_state, std::forward_as_tuple( typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type (fn)  ))
-          ));
-      */
       return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type>, decltype(m_branches), decltype(m_stage_state), typename internal::generate_lambda_type<TTreeProcessorMapperLambda, T, end_type>::type>
       (
           m_branches,
@@ -264,11 +255,6 @@ class TTreeProcessor {
     TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type> &&
     filter(const T& fn) {
       m_valid = false;
-      /*return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type>
-          (m_branches,
-           std::tuple_cat(m_stage_state, std::forward_as_tuple( typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type(fn) ))
-          ));
-      */
       return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type>, decltype(m_branches), decltype(m_stage_state), typename internal::generate_lambda_type<TTreeProcessorFilterLambda, T, end_type>::type>
       (
           m_branches,
@@ -283,12 +269,6 @@ class TTreeProcessor {
     TTreeProcessor<BranchTypes, ProcessingStages..., TTreeProcessorCountPrinter<end_type>> &&
     count() {
       m_valid = false;
-      /*
-      return std::move(TTreeProcessor<BranchTypes, ProcessingStages..., TTreeProcessorCountPrinter<end_type>>
-          (m_branches,
-           std::tuple_cat(m_stage_state, std::forward_as_tuple( TTreeProcessorCountPrinter<end_type>() ))
-          ));
-      */
       return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., TTreeProcessorCountPrinter<end_type>>, decltype(m_branches), decltype(m_stage_state), TTreeProcessorCountPrinter<end_type>>
       (
           m_branches,

@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(TTreeProcessor)
 
 list(APPEND CMAKE_PREFIX_PATH $ENV{ROOTSYS})
+list(APPEND CMAKE_PREFIX_PATH $ENV{VC_BUILD}/lib/cmake)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 add_definitions(-std=c++14)
@@ -13,6 +14,7 @@ find_package(ROOT REQUIRED COMPONENTS RIO TreePlayer)
 include(${ROOT_USE_FILE})
 
 find_package(TBB REQUIRED)
+find_package(Vc REQUIRED)
 
 include_directories( src )
 
@@ -30,20 +32,26 @@ add_executable(testSillyStruct src/test/MainSillyStruct.cxx)
 target_link_libraries(testSillyStruct SillyStruct)
 
 add_executable(testProcessor src/test/testProcessor.cxx)
-target_link_libraries(testProcessor ${ROOT_LIBRARIES} ${TBB_LIBRARIES})
-target_include_directories(testProcessor PRIVATE ${TBB_INCLUDE_DIRS})
+target_link_libraries(testProcessor ${ROOT_LIBRARIES} ${TBB_LIBRARIES} ${Vc_LIBRARIES})
+target_include_directories(testProcessor PRIVATE ${TBB_INCLUDE_DIRS} ${Vc_INCLUDE_DIR})
+target_compile_options(testProcessor PRIVATE -Wno-ignored-attributes)
 
 add_executable(testProcessorParallel src/test/testProcessorParallel.cxx)
-target_link_libraries(testProcessorParallel ${ROOT_LIBRARIES} ${TBB_LIBRARIES})
-target_include_directories(testProcessorParallel PRIVATE ${TBB_INCLUDE_DIRS})
+target_link_libraries(testProcessorParallel ${ROOT_LIBRARIES} ${TBB_LIBRARIES} ${Vc_LIBRARIES})
+target_include_directories(testProcessorParallel PRIVATE ${TBB_INCLUDE_DIRS} ${Vc_INCLUDE_DIR})
+target_compile_options(testProcessorParallel PRIVATE -Wno-ignored-attributes)
 
 add_executable(testProcessorSimple src/test/testProcessorSimple.cxx)
-target_link_libraries(testProcessorSimple ${ROOT_LIBRARIES} ${TBB_LIBRARIES})
-target_include_directories(testProcessorSimple PRIVATE ${TBB_INCLUDE_DIRS})
+target_link_libraries(testProcessorSimple ${ROOT_LIBRARIES} ${TBB_LIBRARIES} ${Vc_LIBRARIES})
+target_include_directories(testProcessorSimple PRIVATE ${TBB_INCLUDE_DIRS} ${Vc_INCLUDE_DIR})
+target_compile_options(testProcessorSimple PRIVATE -Wno-ignored-attributes)
 
 add_executable(testBackports src/test/testBackports.cxx)
 add_executable(testHelpers   src/test/testHelpers.cxx)
 add_executable(testRootHelpers src/test/testRootHelpers.cxx)
 target_link_libraries(testRootHelpers ${ROOT_LIBRARIES})
-#target_link_libraries(testProcessor ${ROOT_LIBRARIES})
+add_executable(testVcHelpers src/test/testVcHelpers.cxx)
+target_link_libraries(testVcHelpers ${Vc_LIBRARIES})
+target_compile_options(testVcHelpers PRIVATE -Wno-ignored-attributes)
+target_include_directories(testVcHelpers PRIVATE ${Vc_INCLUDE_DIR})
 
