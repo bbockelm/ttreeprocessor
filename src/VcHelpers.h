@@ -57,7 +57,7 @@ using vector_t = typename vector_type_impl<T>::type;
 template<unsigned int I, unsigned int J, unsigned int TypeCode, typename F, typename Tuple, typename... Args>
 class is_vectorized_helper {
   public:
-    static const bool value = is_vectorized_helper<I+1, J, TypeCode, F, Tuple, vector_t<typename std::tuple_element<I, Tuple>::type>, Args...>::value;
+    static const bool value = is_vectorized_helper<I+1, J, TypeCode, F, Tuple, Args..., vector_t<typename std::tuple_element<I, Tuple>::type>>::value;
 };
 
 
@@ -72,7 +72,7 @@ class is_vectorized_helper<I, I, 1, F, Tuple, Args...> {
     template <typename F2, typename... Args2>
     static yes & test(typename std::result_of<decltype(&F2::map)(F2, maskv, Args2...)>::type *);
 
-    template <typename, typename>
+    template <typename, typename...>
     static no  & test(...);
 
   public:
@@ -90,7 +90,7 @@ class is_vectorized_helper<I, I, 0, F, Tuple, Args...> {
     template <typename F2, typename... Args2>
     static yes & test(typename std::result_of<decltype(&F2::filter)(F2, maskv, Args2...)>::type *);
 
-    template <typename, typename>
+    template <typename, typename...>
     static no  & test(...);
 
   public:
@@ -110,7 +110,7 @@ class is_vectorized
 template<unsigned int I, unsigned int J, typename ArgTuple, typename... VArgs>
 class vectorized_tuple_helper {
   public:
-    typedef typename vectorized_tuple_helper<I+1, J, ArgTuple, vector_t<typename std::tuple_element<I, ArgTuple>::type>, VArgs...>::type type;
+    typedef typename vectorized_tuple_helper<I+1, J, ArgTuple, VArgs..., vector_t<typename std::tuple_element<I, ArgTuple>::type>>::type type;
 };
 
 template<unsigned int I, typename ArgTuple, typename... VArgs>

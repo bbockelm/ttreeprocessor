@@ -194,8 +194,7 @@ template<typename BranchTypes, typename ... ProcessingStages>
 class TTreeProcessor {
 
     typedef typename internal::convert_to_strings<BranchTypes>::type branch_spec_tuple;
-    typedef BranchTypes start_type;
-    //typedef typename internal::input_tuple_t<BranchTypes, ProcessingStages...> start_type;
+    typedef typename internal::input_tuple_t<BranchTypes, ProcessingStages...> start_type;
     typedef typename internal::ProcessorResult<start_type, ProcessingStages...>::output_type end_type;
     template<class T> using stage_initializer_t = typename std::conditional<std::is_move_constructible<T>::value, T&&, T&>::type;
     template<class T> using stage_storage_t = typename std::conditional<std::is_move_constructible<T>::value, T, T&>::type;
