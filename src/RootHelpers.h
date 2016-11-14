@@ -4,6 +4,7 @@
 #include "TFile.h"
 #include "TTreeReader.h"
 
+#include "VcHelpers.h"
 #include "Helpers.h"
 
 namespace ROOT {
@@ -27,17 +28,71 @@ make_reader_tuple(TTreeReader &reader, typename internal::convert_to_strings<Bra
     return make_reader_tuple_helper<BranchTypes>(reader, branch_names, std::make_index_sequence< std::tuple_size<BranchTypes>::value >());
 }
 
+// Read a single-event at a time; non-vectorized mode.
 template<typename BranchTypes, typename ReaderType, std::size_t... I>
 BranchTypes
 read_event_data_helper(ReaderType& readers, std::index_sequence<I...>) {
     return std::make_tuple(*(*std::get<I>(readers))...);
 }
 
-template<typename BranchTypes, typename ReaderType>
-BranchTypes
-read_event_data(ReaderType& readers) {
-    return read_event_data_helper<BranchTypes>(readers, std::make_index_sequence< std::tuple_size<BranchTypes>::value >());
+template<unsigned int IsVectorized, typename BranchTypes, typename ReaderType, typename ReaderValueType>
+class read_event_data;
+
+template<typename BranchTypes, typename ReaderType, typename ReaderValueType>
+class read_event_data<0, BranchTypes, ReaderType, ReaderValueType> {
+  public:
+
+    BranchTypes operator()(ReaderType&, ReaderValueType& readers) {
+      return read_event_data_helper<BranchTypes>(readers, std::make_index_sequence< std::tuple_size<BranchTypes>::value >());
+    }
+};
+
+template<typename LHS, typename RHS>
+bool param_pack_assign (LHS &lhs, const RHS &rhs)
+{
+  lhs = rhs;
+  return false;
 }
+
+// Read into a Vc vector type.
+template<typename BranchTypes, typename ReaderType, typename ReaderValueType, std::size_t... I>
+BranchTypes
+read_event_data_vectorized_helper(ReaderType& reader, ReaderValueType& readerValues, std::index_sequence<I...>)
+{
+    int idx;
+
+    std::tuple<std::array<bool, internal::vector_count>,
+               std::array<typename std::tuple_element<I, ReaderValueType>::NonConstT_t, internal::vector_count>...
+              > dataPrep;
+    auto &maskPrep = std::get<0>(dataPrep);
+    // Initialize the event data from the TTreeReader.
+    for (idx=0; idx<internal::vector_count && reader.Next(); idx++) {
+        maskPrep[idx] = 1;
+        bool ignore_array[] = { param_pack_assign(std::get<I+1>(dataPrep)[idx], *(*std::get<I>(dataPrep)))... };
+        (void) ignore_array;
+    }
+
+    // Set the remainder of the mask to 0.
+    for (; idx < internal::vector_count; idx++) {
+        maskPrep[idx] = 0;
+    }
+
+    // Initialize the vectorized tuple from the std::arrays.
+    std::tuple<maskv, vector_t<std::tuple_element<I, typename std::tuple_element<I, ReaderValueType>::NonConstT_t>>...> data;
+    bool ignore_array[] = { param_pack_assign(std::get<I>(data), std::get<I>(dataPrep).data())... };
+    (void) ignore_array;
+
+    return data;
+}
+
+template<typename BranchTypes, typename ReaderType, typename ReaderValueType>
+class read_event_data<1, BranchTypes, ReaderType, ReaderValueType> {
+  public:
+
+    BranchTypes operator()(ReaderType& reader, ReaderValueType& readerValues) {
+      return read_event_data_vectorized_helper<BranchTypes>(reader, readerValues, std::make_index_sequence< std::tuple_size<BranchTypes>::value >());
+    }
+};
 
 // Helper to generate a valid TFile
 class TFileHelper {

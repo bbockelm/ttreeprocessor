@@ -198,6 +198,7 @@ class TTreeProcessor {
     typedef typename internal::ProcessorResult<start_type, ProcessingStages...>::output_type end_type;
     template<class T> using stage_initializer_t = typename std::conditional<std::is_move_constructible<T>::value, T&&, T&>::type;
     template<class T> using stage_storage_t = typename std::conditional<std::is_move_constructible<T>::value, T, T&>::type;
+    static const bool m_vectorized_stream = internal::is_vectorized_stream<BranchTypes, ProcessingStages...>::value;
 
   public:
     /**
@@ -287,7 +288,7 @@ class TTreeProcessor {
           TTreeReader myReader(treeName.c_str(), tf);
           auto readerValues = internal::make_reader_tuple<BranchTypes>(myReader, m_branches);
           while (myReader.Next()) {
-              BranchTypes event_data = internal::read_event_data<BranchTypes>(readerValues);
+              BranchTypes event_data = internal::read_event_data<m_vectorized_stream, BranchTypes, decltype(myReader), decltype(readerValues)>()(myReader, readerValues);
               process_stages_helper(event_data);
           }
       }
@@ -323,7 +324,7 @@ class TTreeProcessor {
                   myReader.SetEntriesRange(clusterStart, clusterEnd);
 
                   while (myReader.Next()) {
-                      BranchTypes event_data = internal::read_event_data<BranchTypes>(readerValues);
+                      BranchTypes event_data = internal::read_event_data<m_vectorized_stream, BranchTypes, decltype(myReader), decltype(readerValues)>()(myReader, readerValues);
                       process_stages_helper(event_data);
                   }
               });

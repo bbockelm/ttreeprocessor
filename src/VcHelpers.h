@@ -1,3 +1,5 @@
+#ifndef __VC_HELPERS_H_
+#define __VC_HELPERS_H_
 
 #include <Vc/Vc>
 
@@ -143,6 +145,33 @@ class input_tuple_helper<0, 0, ArgTuple> {
 template<typename ArgTuple, typename... Stages>
 using input_tuple_t = typename input_tuple_helper<0, sizeof...(Stages), ArgTuple, Stages...>::type;
 
+///
+// Given a processing chain, determine if it is vectorized.
+//
+template<unsigned int I, unsigned int J, typename ArgTuple, typename... Stages>
+class is_vectorized_stream_helper;
+
+template<unsigned int I, typename ArgTuple, typename NextStage, typename... Stages>
+class is_vectorized_stream_helper<0, I, ArgTuple, NextStage, Stages...> {
+  public:
+    static const bool value = is_vectorized<NextStage, ArgTuple>::value;
+};
+
+template<typename ArgTuple>
+class is_vectorized_stream_helper<0, 0, ArgTuple> {
+  public:
+    static const bool value = false;
+};
+
+template<typename ArgTuple, typename... Stages>
+class is_vectorized_stream {
+  public:
+    static const bool value = is_vectorized_stream_helper<0, sizeof...(Stages), ArgTuple, Stages...>::value;
+};
+
+
 }  // internal
 
 }  // ROOT
+
+#endif  // __VC_HELPERS_H_

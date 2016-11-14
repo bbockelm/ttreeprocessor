@@ -8,7 +8,10 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 add_definitions(-std=c++14)
 add_definitions(-O3)
-add_definitions(-g)
+#add_definitions(-g)
+add_definitions(-flto)
+
+set (CMAKE_EXE_LINKER_FLAGS "-fwhole-program -O3")
 
 find_package(ROOT REQUIRED COMPONENTS RIO TreePlayer)
 include(${ROOT_USE_FILE})
@@ -49,7 +52,10 @@ target_compile_options(testProcessorSimple PRIVATE -Wno-ignored-attributes)
 add_executable(testBackports src/test/testBackports.cxx)
 add_executable(testHelpers   src/test/testHelpers.cxx)
 add_executable(testRootHelpers src/test/testRootHelpers.cxx)
-target_link_libraries(testRootHelpers ${ROOT_LIBRARIES})
+target_link_libraries(testRootHelpers ${ROOT_LIBRARIES} ${Vc_LIBRARIES})
+target_include_directories(testRootHelpers PRIVATE ${Vc_INCLUDE_DIR})
+target_compile_options(testRootHelpers PRIVATE -Wno-ignored-attributes)
+
 add_executable(testVcHelpers src/test/testVcHelpers.cxx)
 target_link_libraries(testVcHelpers ${Vc_LIBRARIES})
 target_compile_options(testVcHelpers PRIVATE -Wno-ignored-attributes)
