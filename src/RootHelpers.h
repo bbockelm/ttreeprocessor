@@ -61,19 +61,19 @@ read_event_data_vectorized_helper(ReaderType& reader, ReaderValueType& readerVal
 {
     int idx;
 
-    std::tuple<std::array<bool, internal::vector_count>,
-               std::array<typename std::tuple_element<I, ReaderValueType>::NonConstT_t, internal::vector_count>...
+    std::tuple<std::array<bool, vector_count>,
+               std::array<typename std::tuple_element<I, ReaderValueType>::NonConstT_t, vector_count>...
               > dataPrep;
     auto &maskPrep = std::get<0>(dataPrep);
     // Initialize the event data from the TTreeReader.
-    for (idx=0; idx<internal::vector_count && reader.Next(); idx++) {
+    for (idx=0; idx<vector_count && reader.Next(); idx++) {
         maskPrep[idx] = 1;
         bool ignore_array[] = { param_pack_assign(std::get<I+1>(dataPrep)[idx], *(*std::get<I>(dataPrep)))... };
         (void) ignore_array;
     }
 
     // Set the remainder of the mask to 0.
-    for (; idx < internal::vector_count; idx++) {
+    for (; idx < vector_count; idx++) {
         maskPrep[idx] = 0;
     }
 

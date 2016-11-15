@@ -288,7 +288,7 @@ class TTreeProcessor {
           TTreeReader myReader(treeName.c_str(), tf);
           auto readerValues = internal::make_reader_tuple<BranchTypes>(myReader, m_branches);
           while (myReader.Next()) {
-              BranchTypes event_data = internal::read_event_data<m_vectorized_stream, BranchTypes, decltype(myReader), decltype(readerValues)>()(myReader, readerValues);
+              auto event_data = internal::read_event_data<m_vectorized_stream, BranchTypes, decltype(myReader), decltype(readerValues)>()(myReader, readerValues);
               process_stages_helper(event_data);
           }
       }
@@ -324,7 +324,7 @@ class TTreeProcessor {
                   myReader.SetEntriesRange(clusterStart, clusterEnd);
 
                   while (myReader.Next()) {
-                      BranchTypes event_data = internal::read_event_data<m_vectorized_stream, BranchTypes, decltype(myReader), decltype(readerValues)>()(myReader, readerValues);
+                      auto event_data = internal::read_event_data<m_vectorized_stream, BranchTypes, decltype(myReader), decltype(readerValues)>()(myReader, readerValues);
                       process_stages_helper(event_data);
                   }
               });
@@ -347,12 +347,12 @@ class TTreeProcessor {
      * - IsMapper: Set to 1 if this is a mapper, 0 otherwise.
      * - Processor: Base type of the processor.
      */
-    template <unsigned int N, unsigned int M, unsigned int IsMapper, typename Processor>
+    template <unsigned int N, unsigned int M, unsigned int IsVectorized, unsigned int IsMapper, typename Processor>
     struct ProcessorHelper;
 
     // Recursion case for a mapper.
-    template <unsigned int N, unsigned int M, typename Processor>
-    struct ProcessorHelper<N, M, 1, Processor> {
+    template <unsigned int N, unsigned int M, unsigned int IsVectorized, typename Processor>
+    struct ProcessorHelper<N, M, IsVectorized, 1, Processor> {
       ProcessorHelper(Processor *p_) : m_p(p_) {}
       Processor *m_p;
 
@@ -360,13 +360,13 @@ class TTreeProcessor {
 
       void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {
         typedef std::decay_t<typename std::tuple_element<N, std::tuple<ProcessingStages...>>::type> stage_type;
-        (ProcessorHelper<N+1, M, next_is_mapper, Processor>(m_p))( internal::std_future::apply_method(&stage_type::map, std::get<N>(m_p->m_stage_state), arg_tuple));
+        (ProcessorHelper<N+1, M, IsVectorized, next_is_mapper, Processor>(m_p))( internal::std_future::apply_method(&stage_type::map, std::get<N>(m_p->m_stage_state), arg_tuple));
       }
     };
 
     // Recursion case for a filter.
     template <unsigned int N, unsigned int M, typename Processor>
-    struct ProcessorHelper<N, M, 0, Processor> {
+    struct ProcessorHelper<N, M, 0, 0, Processor> {
       ProcessorHelper(Processor *p_) : m_p(p_) {}
       Processor *m_p;
 
@@ -376,13 +376,31 @@ class TTreeProcessor {
         typedef std::decay_t<typename std::tuple_element<N, std::tuple<ProcessingStages...>>::type> stage_type;
         bool result = internal::std_future::apply_method(&stage_type::filter, std::get<N>(m_p->m_stage_state), arg_tuple);
         if (!result) {return;}  // Event did not pass the filter; stop processing.
-        (ProcessorHelper<N+1, M, next_is_mapper, Processor>(m_p))( arg_tuple ); // Pass input argument directly to the next stage.
+        (ProcessorHelper<N+1, M, 0, next_is_mapper, Processor>(m_p))( arg_tuple ); // Pass input argument directly to the next stage.
+      }
+    };
+
+    // Recursion case for a filter - vectorized case.
+    template <unsigned int N, unsigned int M, typename Processor>
+    struct ProcessorHelper<N, M, 1, 0, Processor> {
+      ProcessorHelper(Processor *p_) : m_p(p_) {}
+      Processor *m_p;
+
+      static const unsigned int next_is_mapper = internal::GetStageType<N+1, ProcessingStages...>::value;
+
+      void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) {
+        typedef std::decay_t<typename std::tuple_element<N, std::tuple<ProcessingStages...>>::type> stage_type;
+        maskv result = internal::std_future::apply_method(&stage_type::filter, std::get<N>(m_p->m_stage_state), arg_tuple);
+        // If all events in this vector are masked out, we stop processing.
+        // Note we do not repack the stream whenever an event is filtered.
+        if (result.isEmpty()) {return;}
+        (ProcessorHelper<N+1, M, 1, next_is_mapper, Processor>(m_p))( arg_tuple ); // Pass input argument directly to the next stage.
       }
     };
 
     // Base case for a mapper.
-    template <unsigned int N, typename Processor>
-    struct ProcessorHelper<N, N, 1, Processor> {
+    template <unsigned int N, unsigned int IsVectorized, typename Processor>
+    struct ProcessorHelper<N, N, IsVectorized, 1, Processor> {
       ProcessorHelper(Processor *p_) : m_p(p_) {}
       Processor *m_p;
 
@@ -396,7 +414,7 @@ class TTreeProcessor {
     // Doesn't seem to make much sense to run a filter at the end - maybe will be more useful in the future if we have counters
     // of events that pass.
     template <unsigned int N, typename Processor>
-    struct ProcessorHelper<N, N, 0, Processor> {
+    struct ProcessorHelper<N, N, 0, 0, Processor> {
       ProcessorHelper(Processor *p_) : m_p(p_) {}
       Processor *m_p;
 
@@ -406,9 +424,21 @@ class TTreeProcessor {
       }
     };
 
+    template <unsigned int N, typename Processor>
+    struct ProcessorHelper<N, N, 1, 0, Processor> {
+      ProcessorHelper(Processor *p_) : m_p(p_) {}
+      Processor *m_p;
+
+      void operator()(typename internal::ProcessorArgHelper<0, N, BranchTypes, ProcessingStages...>::input_type arg_tuple) __attribute__((always_inline)) {
+        typedef std::decay_t<typename std::tuple_element<N, std::tuple<ProcessingStages...>>::type> stage_type;
+        internal::std_future::apply_method(&stage_type::filter, std::get<N>(m_p->m_stage_state), arg_tuple);
+      }
+    };
+
+
     void
     process_stages_helper(BranchTypes args) {
-      ProcessorHelper<0, stage_count-1, internal::GetStageType<0, ProcessingStages...>::value, typename std::decay<decltype(*this)>::type>(this)(args);
+      ProcessorHelper<0, stage_count-1, m_vectorized_stream, internal::GetStageType<0, ProcessingStages...>::value, typename std::decay<decltype(*this)>::type>(this)(args);
     };
 
     // Invoke all the finalize methods.

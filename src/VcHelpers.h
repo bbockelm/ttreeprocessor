@@ -7,8 +7,6 @@
 
 namespace ROOT {
 
-namespace internal {
-
 // Vector type definitions - 
 constexpr size_t vector_count = Vc::float_v::size();
 using maskv = Vc::float_v::mask_type;
@@ -16,6 +14,8 @@ using floatv = Vc::float_v;
 using doublev = Vc::SimdArray<double, vector_count>;
 using intv = Vc::SimdArray<int, vector_count>;
 using uintv = Vc::SimdArray<unsigned, vector_count>;
+
+namespace internal {
 
 // Conversion templates to go from scalar types to vectored types.
 template<typename T>
