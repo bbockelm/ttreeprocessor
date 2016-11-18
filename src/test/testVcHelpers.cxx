@@ -4,49 +4,49 @@
 using namespace ROOT;
 using namespace ROOT::internal;
 
-class VectorMap1 : public TTreeMapper {
+class VectorMap1 : public TTreeProcessorMapper<int, maskv, floatv> {
   public:
     int map(maskv, floatv) {return 0;}
 };
 
-class VectorMapAlt1 : public TTreeMapper
+class VectorMapAlt1 : public TTreeProcessorMapper<float, floatv>
 {
   public:
     float map(floatv) {return 0;}
 };
 
-class NonVectorMap1 : public TTreeMapper {
+class NonVectorMap1 : public TTreeProcessorMapper<int, float> {
   public:
     int map(float) {return 0;}
 };
 
-class OverloadedVectorMap1 : public TTreeMapper {
+class OverloadedVectorMap1 : public TTreeProcessorMapper<int, float> {
   public:
     int map(float) {return 1;}
     int map(maskv, floatv) {return 0;}
 };
 
-class VectorFilter : public TTreeFilter {
+class VectorFilter : public TTreeProcessorFilter<maskv, floatv> {
   public:
     int filter(maskv, floatv) {return 0;}
 };
 
-class VectorMap2 : public TTreeMapper {
+class VectorMap2 : public TTreeProcessorMapper<maskv, floatv, doublev> {
   public:
     int map(maskv, floatv, doublev) {return 0;}
 };
 
-class NonVectorMap2 : public TTreeMapper {
+class NonVectorMap2 : public TTreeProcessorMapper<float, double> {
   public:
     int map(float, double) {return 0;}
 };
 
-class VectorMap3 : public TTreeMapper {
+class VectorMap3 : public TTreeProcessorMapper<maskv, floatv, doublev, intv> {
   public:
     int map(maskv, floatv, doublev, intv) {return 0;}
 };
 
-class NonVectorMap3 : public TTreeMapper {
+class NonVectorMap3 : public TTreeProcessorMapper<int, float, double, int> {
   public:
     int map(float, double, int) {return 0;}
 };

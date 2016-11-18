@@ -3,33 +3,33 @@
 
 using namespace ROOT::internal;
 
-class MapOne : ROOT::TTreeMapper {
+class MapOne : ROOT::TTreeProcessorMapper<std::tuple<int, int>, float, float> {
   public:
     std::tuple<int, int> operator()(float, float) {}
     std::tuple<int, int> map(float, float) {}
 };
 
-class MapTwo : ROOT::TTreeMapper {
+class MapTwo : ROOT::TTreeProcessorMapper<std::tuple<double, double>, int, int> {
   public:
     std::tuple<double, double> map(int, int) {}
 };
 
-class MapThree : ROOT::TTreeMapper {
+class MapThree : ROOT::TTreeProcessorMapper<std::tuple<int>, double, double> {
   public:
     std::tuple<int> map(double, double) {}
 };
 
-class MapFour : ROOT::TTreeMapper {
+class MapFour : ROOT::TTreeProcessorMapper<int, float> {
   public:
     int map(float) {}
 };
 
-class MapFive : ROOT::TTreeMapper {
+class MapFive : ROOT::TTreeProcessorMapper<std::tuple<int>, int> {
   public:
     std::tuple<int> map(int);
 };
 
-class FilterOne : ROOT::TTreeFilter {
+class FilterOne : ROOT::TTreeProcessorFilter<float> {
 };
 
 static_assert(std::is_same<std::result_of<decltype(&MapOne::map)(MapOne, float, float)>::type, std::tuple<int, int>>::value, "");

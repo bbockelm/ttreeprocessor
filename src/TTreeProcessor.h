@@ -5,13 +5,14 @@
 #include <numeric>
 
 #include "tbb/task_group.h"
-//#include "tbb/combinable.h"
 #include "tbb/enumerable_thread_specific.h"
 
 #include "TFile.h"
 #include "TTreeReader.h"
 #include "ROOT/TThreadedObject.hxx"
 
+#include "LambdaHelpers.h"
+#include "internal/GeneratedKernels.h"
 // We will need std::apply, which isn't available until C++17.
 #include "Backports.h"
 // Various internal meta-programming helpers
@@ -60,194 +61,21 @@ namespace ROOT {
  */
 
 
-/**
- * The base class of mappers.
- *
- * Note that `map` is invoked as const; that means any access
- * to a member variable must be THREAD SAFE!
+/*
+ * An exception denoting that the user tried to execute a TTreeProcessor that is no longer valid
+ * (typically due to the fact the TTreeProcessor's internals were copied to a different processor
+ * object.
  */
-template<typename T, typename... InputArgs>
-class TTreeProcessorMapper : public TTreeMapper {
-  public:
-    TTreeProcessorMapper() {}
-    TTreeProcessorMapper(const TTreeProcessorMapper&) = delete;
-    TTreeProcessorMapper(TTreeProcessorMapper&&) = default;
-
-    T map (InputArgs...) const noexcept {};
-
-    bool finalize() {return true;}
-
-    typedef T output_type;
-};
-
-
-/**
- * Definition of a mapper derived from a user-provided lambda function.
- */
-template<unsigned int IsVectorized, typename T, typename... InputArgs>
-class TTreeProcessorMapperLambda;
-
-template<typename T, typename... InputArgs>
-class TTreeProcessorMapperLambda<0, T, InputArgs...> final : public TTreeProcessorMapper<typename std::result_of<T(InputArgs...)>::type, InputArgs...> {
-  public:
-    TTreeProcessorMapperLambda(const T& fn) : m_fn(fn) {}
-
-    typename std::result_of<T(InputArgs...)>::type map (InputArgs ...args) const noexcept {
-      return m_fn(args...);
-    }
-
-  private:
-    T m_fn;
-};
-
-template<typename T, typename... InputArgs>
-class TTreeProcessorMapperLambda<1, T, InputArgs...> final : public TTreeProcessorMapper<typename std::result_of<T(InputArgs...)>::type, InputArgs...> {
-  public:
-    TTreeProcessorMapperLambda(const T& fn) : m_fn(fn) {}
-
-    typename std::result_of<T(InputArgs...)>::type map (InputArgs ...args) const noexcept {
-      return m_fn(args...);
-    }
-
-  private:
-    T m_fn;
-};
-
-template<typename T, typename... InputArgs>
-auto
-construct_mapper_lambda() {
-  const static bool vec = internal::is_vectorized<T, std::tuple<InputArgs...>>::value;
-  return TTreeProcessorMapperLambda<vec, T, InputArgs...>();
-}
-
-template<unsigned int I, unsigned int J, unsigned int IsVectorized, template<unsigned int IsVec, typename T, typename... Args> class LambdaClass, typename T, typename InputTuple, typename... Args>
-struct generate_lambda_helper_vectorized;
-
-template<unsigned int I, unsigned int J, template<unsigned int IsVectorized, typename T, typename... Args> class LambdaClass, typename T, typename InputTuple, typename... Args>
-struct generate_lambda_helper_vectorized<I, J, 0, LambdaClass, T, InputTuple, Args...> {
-    typedef typename generate_lambda_helper_vectorized<I+1, J, 0, LambdaClass, T, InputTuple, Args..., typename std::tuple_element<I, InputTuple>::type>::type type;
-};
-
-template<unsigned int I, template<unsigned int IsVectorized, typename T, typename... Args> class LambdaClass, typename T, typename InputTuple, typename... Args>
-struct generate_lambda_helper_vectorized<I, I, 0, LambdaClass, T, InputTuple, Args...> {
-    typedef LambdaClass<0, T, Args...> type;
-};
-
-template<unsigned int I, unsigned int J, template<unsigned int IsVectorized, typename T, typename... Args> class LambdaClass, typename T, typename InputTuple, typename... Args>
-struct generate_lambda_helper_vectorized<I, J, 1, LambdaClass, T, InputTuple, Args...> {
-    typedef typename generate_lambda_helper_vectorized<I+1, J, 1, LambdaClass, T, InputTuple, Args..., internal::vector_t<typename std::tuple_element<I, InputTuple>::type>>::type type;
-};
-
-template<unsigned int I, template<unsigned int IsVectorized, typename T, typename... Args> class LambdaClass, typename T, typename InputTuple, typename... Args>
-struct generate_lambda_helper_vectorized<I, I, 1, LambdaClass, T, InputTuple, Args...> {
-    typedef LambdaClass<1, T, maskv, Args...> type;
-};
-
-template<template<unsigned int IsVectorized, typename T, typename... Args> class LambdaClass, typename T, class InputTuple>
-class generate_lambda_type_vectorized {
-  private:
-    static const int type_count = std::tuple_size<InputTuple>::value;
-    static const bool is_vectorized = internal::is_vectorized<T, InputTuple>::value;
-    //static const bool is_vectorized = 1;
-
-  public:
-    typedef typename generate_lambda_helper_vectorized<0, type_count, is_vectorized, LambdaClass, T, InputTuple>::type type;
-};
-
-
-/**
- * Counts the number of events seen by a mapper.
- * Prints the final number out at the end.
- */
-template<typename... InputArgs>
-class TTreeProcessorCountPrinter final : public TTreeProcessorMapper<std::tuple<InputArgs...>, InputArgs...> {
-  typedef tbb::enumerable_thread_specific<int> EventCounter;
-
-  public:
-    TTreeProcessorCountPrinter() : m_counter(0) {
-    }
-
-    TTreeProcessorCountPrinter(TTreeProcessorCountPrinter && rhs) {
-      m_counter = std::move(rhs.m_counter);
-    }
-
-    TTreeProcessorCountPrinter(const TTreeProcessorCountPrinter & rhs) {
-      int sum = std::accumulate(rhs.m_counter.begin(), rhs.m_counter.end(), 0);
-      m_counter = EventCounter(sum);
-    }
-
-    std::tuple<InputArgs...> map (InputArgs... args) const noexcept {
-      //EventCounter::reference my_counter = m_counter->local();
-      //++m_counter->local();
-      m_counter.local()++;
-
-      return std::make_tuple(args...);
-    }
-
-    bool finalize() {
-      int sum = std::accumulate(m_counter.begin(), m_counter.end(), 0);
-      //int sum = m_counter->combine([](int x, int y) {return x+y;});
-      std::cout << "Counter saw " << sum << " events.\n";
-    }
-
-  private:
-    mutable EventCounter m_counter;
-};
-
-/**
- * Base class of a filter.
- */
-template<typename... InputArgs>
-class TTreeProcessorFilter : public TTreeFilter {
-  public:
-    TTreeProcessorFilter() {}
-    TTreeProcessorFilter(const TTreeProcessorFilter&) = delete;
-    TTreeProcessorFilter(TTreeProcessorFilter&&) = default;
-
-    bool filter(InputArgs...) const noexcept {};
-
-    bool finalize() {return true;}
-};
-
-/**
- * Filters derived from a user-provided lambda.
- */
-template<unsigned int IsVectorized, typename T, typename... InputArgs>
-class TTreeProcessorFilterLambda;
-
-template<typename T, typename... InputArgs>
-class TTreeProcessorFilterLambda<0, T, InputArgs...> final : public TTreeProcessorFilter<InputArgs...> {
-  public:
-    TTreeProcessorFilterLambda(const T& fn) : m_fn(fn) {}
-
-    bool filter(InputArgs ...args) const noexcept {
-      return m_fn(args...);
-    }
-
-  private:
-    T m_fn;
-};
-
-template<typename T, typename... InputArgs>
-class TTreeProcessorFilterLambda<1, T, InputArgs...> final : public TTreeProcessorFilter<internal::vector_t<InputArgs>...> {
-  public:
-    TTreeProcessorFilterLambda(const T& fn) : m_fn(fn) {}
-
-    bool filter(internal::vector_t<InputArgs> ...args) const noexcept {
-      return m_fn(args...);
-    }
-
-  private:
-    T m_fn;
-};
-
-
 class InvalidProcessor : public std::exception {
   public:
     virtual const char *what() const noexcept override {return "Attempting to execute an invalid processor handle";}
 };
 
 
+/*
+ * Exception raised if the user requests to process a TTree that is not
+ * actually found in the TFile.
+ */
 class NoSuchTree : public std::exception {
 
   public:
@@ -307,17 +135,17 @@ class TTreeProcessor {
      * - Returns a std::tuple.
      */
     template<typename T> // Hm - it's not clear if we can enforce any of the above with type traits?
-    TTreeProcessor<BranchTypes, ProcessingStages..., typename generate_lambda_type_vectorized<TTreeProcessorMapperLambda, T, end_type>::type> &&
+    TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type_vectorized<internal::TTreeProcessorMapperLambda, T, end_type>::type> &&
     map(const T& fn) {
 
-      static const bool is_vectorized = internal::is_vectorized<typename generate_lambda_type_vectorized<TTreeProcessorMapperLambda, T, end_type>::type, end_type>::value;
+      static const bool is_vectorized = internal::is_vectorized<typename internal::generate_lambda_type_vectorized<internal::TTreeProcessorMapperLambda, T, end_type>::type, end_type>::value;
 
       m_valid = false;
-      return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., typename generate_lambda_type_vectorized<TTreeProcessorMapperLambda, T, end_type>::type>, decltype(m_branches), decltype(m_stage_state), typename generate_lambda_type_vectorized<TTreeProcessorMapperLambda, T, end_type>::type>
+      return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type_vectorized<internal::TTreeProcessorMapperLambda, T, end_type>::type>, decltype(m_branches), decltype(m_stage_state), typename internal::generate_lambda_type_vectorized<internal::TTreeProcessorMapperLambda, T, end_type>::type>
       (
           m_branches,
           m_stage_state,
-          typename generate_lambda_type_vectorized<TTreeProcessorMapperLambda, T, end_type>::type(fn)
+          typename internal::generate_lambda_type_vectorized<internal::TTreeProcessorMapperLambda, T, end_type>::type(fn)
       );
     }
 
@@ -328,28 +156,28 @@ class TTreeProcessor {
      * If the lambda returns false, the current event is ignored for the rest of the chain.
      */
     template<typename T>  // TODO: enforce calling signature via type_traits
-    TTreeProcessor<BranchTypes, ProcessingStages..., typename generate_lambda_type_vectorized<TTreeProcessorFilterLambda, T, end_type>::type> &&
+    TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type_vectorized<internal::TTreeProcessorFilterLambda, T, end_type>::type> &&
     filter(const T& fn) {
       m_valid = false;
-      return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., typename generate_lambda_type_vectorized<TTreeProcessorFilterLambda, T, end_type>::type>, decltype(m_branches), decltype(m_stage_state), typename generate_lambda_type_vectorized<TTreeProcessorFilterLambda, T, end_type>::type>
+      return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., typename internal::generate_lambda_type_vectorized<internal::TTreeProcessorFilterLambda, T, end_type>::type>, decltype(m_branches), decltype(m_stage_state), typename internal::generate_lambda_type_vectorized<internal::TTreeProcessorFilterLambda, T, end_type>::type>
       (
           m_branches,
           m_stage_state,
-          typename generate_lambda_type_vectorized<TTreeProcessorFilterLambda, T, end_type>::type(fn)
+          typename internal::generate_lambda_type_vectorized<internal::TTreeProcessorFilterLambda, T, end_type>::type(fn)
       );
     }
 
     /**
      * Add a verbose counter - prints out how many events passed the map function.
      */
-    TTreeProcessor<BranchTypes, ProcessingStages..., TTreeProcessorCountPrinter<end_type>> &&
+    TTreeProcessor<BranchTypes, ProcessingStages..., internal::TTreeProcessorCountPrinter<end_type>> &&
     count() {
       m_valid = false;
-      return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., TTreeProcessorCountPrinter<end_type>>, decltype(m_branches), decltype(m_stage_state), TTreeProcessorCountPrinter<end_type>>
+      return internal::construct_processor<TTreeProcessor<BranchTypes, ProcessingStages..., internal::TTreeProcessorCountPrinter<end_type>>, decltype(m_branches), decltype(m_stage_state), internal::TTreeProcessorCountPrinter<end_type>>
       (
           m_branches,
           m_stage_state,
-          TTreeProcessorCountPrinter<end_type>()
+          internal::TTreeProcessorCountPrinter<end_type>()
       );
     }
 

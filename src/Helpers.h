@@ -5,6 +5,8 @@
 #include <string>
 #include <tuple>
 
+#include "TTreeProcessorKernels.h"
+
 /**
  * Various helper functions related to template meta-programming.
  *
@@ -14,9 +16,6 @@
  */
 
 namespace ROOT {
-
-class TTreeMapper {};
-class TTreeFilter {};
 
 namespace internal {
 
@@ -125,9 +124,9 @@ struct result_of_unpacked_tuple {
 /**
  * ProcessorApply and ProcessorApplyHelper take a class type (F):
  *
- * - If F derives from TTreeMapper, then apply the unpacked tuple to the
+ * - If F derives from TTreeProcessorMapperBase, then apply the unpacked tuple to the
  *   class's map function.
- * - Otherwise, assume that the class descends from TTreeFilter and assume.
+ * - Otherwise, assume that the class descends from TTreeProcessorFilterBase and assume.
  *   the stream's types are unchanged (as the filter simply removes events,
  *   not changes types).
  */
@@ -146,7 +145,7 @@ struct ProcessorApplyHelper<1, F, InputArg> {
 
 template<typename F, typename InputArg>
 struct ProcessorApply {
-  static const unsigned int is_mapper = std::is_base_of<TTreeMapper, F>::value;
+  static const unsigned int is_mapper = std::is_base_of<ROOT::internal::TTreeProcessorMapperBase, F>::value;
   typedef typename ProcessorApplyHelper<is_mapper, F, InputArg>::type type;
 };
 
@@ -200,7 +199,7 @@ struct GetStageTypeHelper {
 
 template<unsigned int N, typename F, typename... ProcessingStages>
 struct GetStageTypeHelper<N, N, F, ProcessingStages...> {
-  static const unsigned int value = std::is_base_of<TTreeMapper, F>::value;
+  static const unsigned int value = std::is_base_of<ROOT::internal::TTreeProcessorMapperBase, F>::value;
 };
 
 template<unsigned int N, typename... ProcessingStages>

@@ -121,8 +121,7 @@ template<typename F, typename ArgTuple>
 class is_vectorized
 {
   private:
-    constexpr static unsigned int typecode = std::is_base_of<TTreeMapper, F>::value*2 + std::is_base_of<TTreeFilter, F>::value;
-    //constexpr static unsigned int typecode = std::is_base_of<TTreeMapper, F>::value + 1;
+    constexpr static unsigned int typecode = std::is_base_of<ROOT::internal::TTreeProcessorMapperBase, F>::value*2 + std::is_base_of<ROOT::internal::TTreeProcessorFilterBase, F>::value;
 
   public:
     static const bool value = is_vectorized_helper<0, std::tuple_size<ArgTuple>::value, typecode, F, ArgTuple>::value;
