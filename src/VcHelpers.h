@@ -66,7 +66,7 @@ class is_vectorized_helper {
 ///
 // Vectorized Helper base case for a mapper
 template<unsigned int I, typename F, typename Tuple, typename... Args>
-class is_vectorized_helper<I, I, 1, F, Tuple, Args...> {
+class is_vectorized_helper<I, I, 2, F, Tuple, Args...> {
   private:
     typedef char yes[1];
     typedef char no[2];
@@ -84,7 +84,7 @@ class is_vectorized_helper<I, I, 1, F, Tuple, Args...> {
 ///
 // Vectorized Helper base case for a reducer
 template<unsigned int I, typename F, typename Tuple, typename... Args>
-class is_vectorized_helper<I, I, 0, F, Tuple, Args...> {
+class is_vectorized_helper<I, I, 1, F, Tuple, Args...> {
   private:
     typedef char yes[1];
     typedef char no[2];
@@ -99,15 +99,41 @@ class is_vectorized_helper<I, I, 0, F, Tuple, Args...> {
     static const bool value = sizeof(test<F, Args...>(0)) == sizeof(yes);
 };
 
+///
+// Vectorized helper for a lambda
+template<unsigned int I, typename F, typename Tuple, typename... Args>
+class is_vectorized_helper<I, I, 0, F, Tuple, Args...> {
+  private:
+    typedef char yes[1];
+    typedef char no[2];
+
+    template <typename F2, typename... Args2>
+    static yes & test(typename std::result_of<F2(maskv, Args2...)>::type *);
+
+    template <typename, typename...>
+    static no  & test(...);
+
+  public:
+    static const bool value = sizeof(test<F, Args...>(0)) == sizeof(yes);
+};
+
 template<typename F, typename ArgTuple>
 class is_vectorized
 {
+  private:
+    constexpr static unsigned int typecode = std::is_base_of<TTreeMapper, F>::value*2 + std::is_base_of<TTreeFilter, F>::value;
+    //constexpr static unsigned int typecode = std::is_base_of<TTreeMapper, F>::value + 1;
+
   public:
-    static const bool value = is_vectorized_helper<0, std::tuple_size<ArgTuple>::value, std::is_base_of<TTreeMapper, F>::value, F, ArgTuple>::value;
+    static const bool value = is_vectorized_helper<0, std::tuple_size<ArgTuple>::value, typecode, F, ArgTuple>::value;
 };
 
 ///
 // Determine the vectorized version of an input tuple
+//
+// i.e., maps:
+//
+// std::tuple<float> -> std::tuple<maskv, floatv>
 
 template<unsigned int I, unsigned int J, typename ArgTuple, typename... VArgs>
 class vectorized_tuple_helper {

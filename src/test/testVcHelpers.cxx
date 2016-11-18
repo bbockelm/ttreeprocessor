@@ -80,5 +80,7 @@ static_assert(std::is_same< vectorized_tuple_t<std::tuple<int>>, std::tuple<mask
 static_assert(std::is_same< vectorized_tuple_t<std::tuple<int, float>>, std::tuple<maskv, intv, floatv> >::value, "Converted to wrong type.");
 static_assert(!std::is_same< vectorized_tuple_t<std::tuple<int, float>>, std::tuple<maskv, intv, doublev> >::value, "Converted to wrong type.");
 
+static_assert(is_vectorized_stream<std::tuple<float>, VectorMap1>::value, "Incorrectly marked as not-vectorized.");
+
 int main(int argc, char *argv[]) {return 0;}
 

@@ -54,22 +54,31 @@ bool param_pack_assign (LHS &lhs, const RHS &rhs)
   return false;
 }
 
+template<typename LHS, typename RHS>
+bool param_pack_load (LHS &lhs, const RHS &rhs)
+{
+  lhs.load(rhs);
+  return false;
+}
+
 // Read into a Vc vector type.
 template<typename BranchTypes, typename ReaderType, typename ReaderValueType, std::size_t... I>
-BranchTypes
+vectorized_tuple_t<BranchTypes>
 read_event_data_vectorized_helper(ReaderType& reader, ReaderValueType& readerValues, std::index_sequence<I...>)
 {
     int idx;
 
     std::tuple<std::array<bool, vector_count>,
-               std::array<typename std::tuple_element<I, ReaderValueType>::NonConstT_t, vector_count>...
+               std::array<typename std::tuple_element<I, ReaderValueType>::type::element_type::NonConstT_t, vector_count>...
               > dataPrep;
     auto &maskPrep = std::get<0>(dataPrep);
     // Initialize the event data from the TTreeReader.
-    for (idx=0; idx<vector_count && reader.Next(); idx++) {
+    bool isValid = true;
+    for (idx=0; idx<vector_count && isValid; idx++) {
         maskPrep[idx] = 1;
-        bool ignore_array[] = { param_pack_assign(std::get<I+1>(dataPrep)[idx], *(*std::get<I>(dataPrep)))... };
+        bool ignore_array[] = { param_pack_assign(std::get<I+1>(dataPrep)[idx], *(*std::get<I>(readerValues)))... };
         (void) ignore_array;
+        isValid = (idx+1<vector_count) && reader.Next();
     }
 
     // Set the remainder of the mask to 0.
@@ -78,8 +87,9 @@ read_event_data_vectorized_helper(ReaderType& reader, ReaderValueType& readerVal
     }
 
     // Initialize the vectorized tuple from the std::arrays.
-    std::tuple<maskv, vector_t<std::tuple_element<I, typename std::tuple_element<I, ReaderValueType>::NonConstT_t>>...> data;
-    bool ignore_array[] = { param_pack_assign(std::get<I>(data), std::get<I>(dataPrep).data())... };
+    std::tuple<maskv, vector_t<typename std::tuple_element<I, ReaderValueType>::type::element_type::NonConstT_t>...> data;
+    std::get<0>(data).load(std::get<0>(dataPrep).data());
+    bool ignore_array[] = { param_pack_load(std::get<I+1>(data), std::get<I+1>(dataPrep).data())... };
     (void) ignore_array;
 
     return data;
@@ -89,7 +99,7 @@ template<typename BranchTypes, typename ReaderType, typename ReaderValueType>
 class read_event_data<1, BranchTypes, ReaderType, ReaderValueType> {
   public:
 
-    BranchTypes operator()(ReaderType& reader, ReaderValueType& readerValues) {
+    vectorized_tuple_t<BranchTypes> operator()(ReaderType& reader, ReaderValueType& readerValues) {
       return read_event_data_vectorized_helper<BranchTypes>(reader, readerValues, std::make_index_sequence< std::tuple_size<BranchTypes>::value >());
     }
 };

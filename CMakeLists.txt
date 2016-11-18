@@ -49,6 +49,11 @@ target_link_libraries(testProcessorSimple ${ROOT_LIBRARIES} ${TBB_LIBRARIES} ${V
 target_include_directories(testProcessorSimple PRIVATE ${TBB_INCLUDE_DIRS} ${Vc_INCLUDE_DIR})
 target_compile_options(testProcessorSimple PRIVATE -Wno-ignored-attributes)
 
+add_executable(testProcessorVectorized src/test/testProcessorVectorized.cxx)
+target_link_libraries(testProcessorVectorized ${ROOT_LIBRARIES} ${TBB_LIBRARIES} ${Vc_LIBRARIES})
+target_include_directories(testProcessorVectorized PRIVATE ${TBB_INCLUDE_DIRS} ${Vc_INCLUDE_DIR})
+target_compile_options(testProcessorVectorized PRIVATE -Wno-ignored-attributes)
+
 add_executable(testBackports src/test/testBackports.cxx)
 add_executable(testHelpers   src/test/testHelpers.cxx)
 add_executable(testRootHelpers src/test/testRootHelpers.cxx)
